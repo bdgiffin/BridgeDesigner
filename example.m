@@ -100,3 +100,4 @@ fprintf('analysis complete!\n')
 %     bending stress, torsional shear stress, and elastic buckling
 fprintf('computing member capacities...\n')
 bridge.computeMemberCapacities();
+

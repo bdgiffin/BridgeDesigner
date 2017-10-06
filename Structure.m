@@ -105,17 +105,22 @@ classdef Structure < handle
                     Nlayers = Nlayers + 1;
                     layers{Nlayers} = strtrim(fgets(fileID));
                 elseif (strcmp(strtrim(string1),'LINE'))
-                    % get the current line's layer (group) ID
-                    for i = 1:7
+                    % find the AcDbEntity entry
+                    string2 = fgets(fileID);
+                    while (~strcmp(strtrim(string2),'AcDbEntity'))
                         string2 = fgets(fileID);
                     end
+                    string2 = fgets(fileID);
+                    % get the current line's layer (group) ID
                     string2 = strtrim(fgets(fileID));
                     for i = 1:Nlayers
                         if strcmp(string2,layers{i})
                             groups = [groups; i];
                         end
                     end
-                    for i = 1:2
+                    % find the AcDbLine entry
+                    string2 = fgets(fileID);
+                    while (~strcmp(strtrim(string2),'AcDbLine'))
                         string2 = fgets(fileID);
                     end
                     % read the current line's coordinates
@@ -514,6 +519,15 @@ classdef Structure < handle
                 end
             end
         end % computeGeometricStiffness
+        
+        % =============================================================== %
+                
+        % Plot undeformed STRUCTURE
+        function plotUndeformed(STRUCTURE)
+            % plot the undeformed structure
+            U = zeros(6*length(STRUCTURE.joints),1);
+            STRUCTURE.plotDeformed(U)
+        end % plotUndeformed
         
         % =============================================================== %
         
