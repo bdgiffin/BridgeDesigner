@@ -1,5 +1,5 @@
 % ======================================================================= %
-%                   EXAMPLE BRIDGE-DESIGNER SCRIPT                        %
+%             EXAMPLE BRIDGE-DESIGNER OPTIMIZATION SCRIPT                 %
 % ======================================================================= %
 %   BridgeDesigner is a Matlab library of structural design tools,        %
 %   which can be used to write scripts for the purposes of automating     %
@@ -58,51 +58,10 @@ fprintf('creating model...\n')
 bridge = Structure(dxf, axes, active);
 
 % Optimize all member sections in the model, indicating how many 
-%   non-linear iterations to perform before stopping (e.g. 3)
+%   non-linear iterations to perform before stopping, and what
+%   factor of safety to use to design against local member failure
 fprintf('optimizing member sections...\n')
-bridge.optimizeMemberSectionsImplicit(2);
-
-% Compute the (average) efficiency score for the newly created structure
-%   by invoking the "computeEfficiency" method defined on the
-%   "Structure" class object.
-fprintf('calculating score...\n')
-[ score, weight, deflections ] = bridge.computeEfficiency();
-% (Optionally) print the results to the Matlab command window
-fprintf('measured weight of structure = %6.2f lbs\n', weight)
-fprintf('average aggregate deflection = %7.4f in\n', mean(deflections))
-import java.text.*; fmt = DecimalFormat; % (for printing comma-separated #'s)
-fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(score))))
-
-% Compute the worst-case lateral sway using the
-%   "computeLateralSway" method
-[ sway, swayID ] = bridge.computeLateralSway();
-% (Optionally) print the result to the Matlab command window
-fprintf('maximum lateral deflection   = %7.4f in (case %i)\n', sway, swayID)
-
-% Compute the worst-case elastic buckling load factor
-%   using the "computeBucklingLoad" method.
-%   - The buckling load "factor" is the amount by which the applied loads
-%     would need to be multiplied to induce the corresponding elastic
-%     buckling "mode" of failure. That is to say, "factor" represents a
-%     factor of safety in the design against elastic buckling, i.e.
-%     - if factor > 1, then the structure is safe
-%     - if factor < 1, then the structure will fail due to buckling
-%   WARNING: Elastic buckling analyses are typically non-conservative
-%            estimates of the actual buckling load for a structure.
-%            As such, a fairly generous factor of safety is strongly
-%            recommended (e.g. factor > 1.4)
-fprintf('running buckling analysis...\n')
-[ factor, mode, bucklingID ] = bridge.computeBucklingLoad();
-% (Optionally) print the result to the Matlab command window
-fprintf('elastic buckling load factor = %6.3f (case %i)\n', factor, bucklingID)
-% (Optionally) plot the exaggerated deformed shape of the buckling mode
-bridge.plotDeformed(20*mode);
-fprintf('analysis complete!\n')
-
-% Compute and plot the member capacities of all members in the structure
-%   using the "computeMemberCapacities" method.
-%   - All members are currently checked against combined: gross yield,
-%     bending stress, torsional shear stress, and elastic buckling
-fprintf('computing member capacities...\n')
-bridge.computeMemberCapacities();
-
+Niterations = 3; % maximum number of iterations
+safetyFactor = 1.2; % factor of safety
+bridge.optimizeMemberSectionsExplicit(Niterations, safetyFactor);
+bridge.plotUndeformed()

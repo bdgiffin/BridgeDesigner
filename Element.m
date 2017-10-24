@@ -2,7 +2,7 @@ classdef Element < handle
     % ELEMENT object definition
     
     % ELEMENT object properties
-    properties (SetAccess = private)
+    properties (SetAccess = public)
         joints
         material
         section
@@ -34,6 +34,8 @@ classdef Element < handle
             ELEMENT = initialize(ELEMENT);
         end
         
+        % =============================================================== %
+        
         % Initialize ELEMENT object
         function ELEMENT = initialize(ELEMENT)
             % compute the length of the element
@@ -61,11 +63,23 @@ classdef Element < handle
             ELEMENT.fixedDofs = -dofs(ELEMENT.fixed);
         end
         
-        % Compute ELEMENT stiffness matrix
+        % =============================================================== %
+        
+        % Compute ELEMENT weight
         function [ weight ] = computeWeight(ELEMENT)
             % compute the weight of the element (lbs)
             weight = ELEMENT.material.rho * ELEMENT.L * ELEMENT.section.A;
         end % computeWeight
+        
+        % =============================================================== %
+                
+        % Compute ELEMENT weight residual
+        function [ r ] = computeWeightResidual(ELEMENT)
+            % compute the weight residual of the element (lbs)
+            r = ELEMENT.material.rho * ELEMENT.L;
+        end % computeWeightResidual
+        
+        % =============================================================== %
         
         % Compute ELEMENT stiffness matrix
         function [k] = computeStiffness(ELEMENT)
@@ -102,7 +116,9 @@ classdef Element < handle
                 k(ids,:) = R * k(ids,:);
                 k(:,ids) = k(:,ids) * R';
             end
-        end
+        end % computeStiffness
+        
+        % =============================================================== %
         
         % Compute ELEMENT geometric stiffness
         function [ g ] = computeGeometricStiffness(ELEMENT, displacements)
@@ -142,6 +158,206 @@ classdef Element < handle
                 g(:,ids) = g(:,ids) * R';
             end
         end % computeGeometricStiffness
+        
+        % =============================================================== %
+        
+        % Compute ELEMENT section stiffness
+        function [ sw, su, r ] = computeSectionStiffness(ELEMENT, u, w)
+            % Assemble the section stiffness matrix for the prismatic beam element
+            R = ELEMENT.R;
+
+            % compute the local section stiffness quantities, and fill in the matrix
+            dAdA = 1.0;
+            dIdA = 0.0;
+            dJdA = 0.0;
+            Kxx = dAdA * ELEMENT.material.E / ELEMENT.L;
+            Kyy = 12 * ELEMENT.material.E * dIdA / ELEMENT.L^3;
+            Kzz = Kyy;
+            Kuu = ELEMENT.material.G * dJdA / ELEMENT.L;
+            Kvz = 6 * ELEMENT.material.E * dIdA / ELEMENT.L^2;
+            Kwy = Kvz;
+            Kv1 = 4 * ELEMENT.material.E * dIdA / ELEMENT.L;
+            Kw1 = Kv1;
+            Kv2 = 2 * ELEMENT.material.E * dIdA / ELEMENT.L;
+            Kw2 = Kv2;
+            k = [Kxx,  0.0,  0.0,  0.0,  0.0,  0.0, -Kxx,  0.0,  0.0,  0.0,  0.0,  0.0; ...
+                 0.0, +Kyy,  0.0,  0.0,  0.0, +Kwy,  0.0, -Kyy,  0.0,  0.0,  0.0, +Kwy; ...
+                 0.0,  0.0, +Kzz,  0.0, -Kvz,  0.0,  0.0,  0.0, -Kzz,  0.0, -Kvz,  0.0; ...
+                 0.0,  0.0,  0.0, +Kuu,  0.0,  0.0,  0.0,  0.0,  0.0, -Kuu,  0.0,  0.0; ...
+                 0.0,  0.0, -Kvz,  0.0, +Kv1,  0.0,  0.0,  0.0, +Kvz,  0.0, +Kv2,  0.0; ...
+                 0.0, +Kwy,  0.0,  0.0,  0.0, +Kw1,  0.0, -Kwy,  0.0,  0.0,  0.0, +Kw2; ...
+                -Kxx,  0.0,  0.0,  0.0,  0.0,  0.0, +Kxx,  0.0,  0.0,  0.0,  0.0,  0.0; ...
+                 0.0, -Kyy,  0.0,  0.0,  0.0, -Kwy,  0.0, +Kyy,  0.0,  0.0,  0.0, -Kwy; ...
+                 0.0,  0.0, -Kzz,  0.0, +Kvz,  0.0,  0.0,  0.0, +Kzz,  0.0, +Kvz,  0.0; ...
+                 0.0,  0.0,  0.0, -Kuu,  0.0,  0.0,  0.0,  0.0,  0.0, +Kuu,  0.0,  0.0; ...
+                 0.0,  0.0, -Kvz,  0.0, +Kv2,  0.0,  0.0,  0.0, +Kvz,  0.0, +Kv1,  0.0; ...
+                 0.0, +Kwy,  0.0,  0.0,  0.0, +Kw2,  0.0, -Kwy,  0.0,  0.0,  0.0, +Kw1];
+
+            % rotate the section stiffness matrix into the global coordinate system
+            for i = 1:4
+                ids = (1:3) + 3*(i-1);
+                k(ids,:) = R * k(ids,:);
+                k(:,ids) = k(:,ids) * R';
+            end
+            
+            % compute the tangent matricies and residual contribution
+            su = k * u;
+            sw = k * w;
+            r = - w' * k * u;
+        end % computeSectionStiffness
+        
+        % =============================================================== %
+        
+        % Compute ELEMENT section residual
+        function [ s, r ] = computeSectionResidual(ELEMENT, u, w)
+            % Assemble the section stiffness matrix for the prismatic beam element
+            R = ELEMENT.R;
+
+            % compute the local section stiffness quantities, and fill in the matrix
+            dAdA = 1.0;
+            dIdA = 0.0;
+            dJdA = 0.0;
+            Kxx = dAdA * ELEMENT.material.E / ELEMENT.L;
+            Kyy = 12 * ELEMENT.material.E * dIdA / ELEMENT.L^3;
+            Kzz = Kyy;
+            Kuu = ELEMENT.material.G * dJdA / ELEMENT.L;
+            Kvz = 6 * ELEMENT.material.E * dIdA / ELEMENT.L^2;
+            Kwy = Kvz;
+            Kv1 = 4 * ELEMENT.material.E * dIdA / ELEMENT.L;
+            Kw1 = Kv1;
+            Kv2 = 2 * ELEMENT.material.E * dIdA / ELEMENT.L;
+            Kw2 = Kv2;
+            k = [Kxx,  0.0,  0.0,  0.0,  0.0,  0.0, -Kxx,  0.0,  0.0,  0.0,  0.0,  0.0; ...
+                 0.0, +Kyy,  0.0,  0.0,  0.0, +Kwy,  0.0, -Kyy,  0.0,  0.0,  0.0, +Kwy; ...
+                 0.0,  0.0, +Kzz,  0.0, -Kvz,  0.0,  0.0,  0.0, -Kzz,  0.0, -Kvz,  0.0; ...
+                 0.0,  0.0,  0.0, +Kuu,  0.0,  0.0,  0.0,  0.0,  0.0, -Kuu,  0.0,  0.0; ...
+                 0.0,  0.0, -Kvz,  0.0, +Kv1,  0.0,  0.0,  0.0, +Kvz,  0.0, +Kv2,  0.0; ...
+                 0.0, +Kwy,  0.0,  0.0,  0.0, +Kw1,  0.0, -Kwy,  0.0,  0.0,  0.0, +Kw2; ...
+                -Kxx,  0.0,  0.0,  0.0,  0.0,  0.0, +Kxx,  0.0,  0.0,  0.0,  0.0,  0.0; ...
+                 0.0, -Kyy,  0.0,  0.0,  0.0, -Kwy,  0.0, +Kyy,  0.0,  0.0,  0.0, -Kwy; ...
+                 0.0,  0.0, -Kzz,  0.0, +Kvz,  0.0,  0.0,  0.0, +Kzz,  0.0, +Kvz,  0.0; ...
+                 0.0,  0.0,  0.0, -Kuu,  0.0,  0.0,  0.0,  0.0,  0.0, +Kuu,  0.0,  0.0; ...
+                 0.0,  0.0, -Kvz,  0.0, +Kv2,  0.0,  0.0,  0.0, +Kvz,  0.0, +Kv1,  0.0; ...
+                 0.0, +Kwy,  0.0,  0.0,  0.0, +Kw2,  0.0, -Kwy,  0.0,  0.0,  0.0, +Kw1];
+
+            % rotate the section stiffness matrix into the global coordinate system
+            for i = 1:4
+                ids = (1:3) + 3*(i-1);
+                k(ids,:) = R * k(ids,:);
+                k(:,ids) = k(:,ids) * R';
+            end
+            
+            % compute local element stiffness matrix
+            [ ke ] = ELEMENT.computeStiffness();
+            
+            % compute the residual contribution
+            r = - w' * k * u;
+            s = 2 * w' * (k * pinv(ke) \ k) * u;
+        end % computeSectionResidual
+        
+        % =============================================================== %
+        
+        % Compute ELEMENT section derivatives
+        function [ ds, smin ] = computeSectionDerivatives(ELEMENT, u, v)
+            % Assemble the section derivatives for the prismatic beam element
+            % ds(1) := d(cost)/dI^-1
+            % ds(2) := d(cost)/dJ^-1
+            % ds(3) := d(cost)/dA^-1
+            % ds(4) := d(cost)/dA
+            % smin(1) := d(axial+bending)/dA^-1
+            % smin(2) := d(axial+bending)/dS^-1
+            % smin(3) := d(shear)/dS^-1
+            % smin(4) := d(buckling)/dI^-1
+            
+            R = ELEMENT.R;
+            
+            % compute the local element end-displacements and rotations
+            ur = zeros(3,2);
+            qr = zeros(3,2);
+            uv = zeros(3,2);
+            qv = zeros(3,2);
+            for i = 1:2
+                ur(:,i) = R' * u((1:3)+6*(i-1));
+                qr(:,i) = R' * u((4:6)+6*(i-1));
+                uv(:,i) = R' * v((1:3)+6*(i-1));
+                qv(:,i) = R' * v((4:6)+6*(i-1));
+            end
+            
+            % compute (constant) axial strain, force
+            Pr = ELEMENT.section.A * ELEMENT.material.E * (ur(1,2) - ur(1,1)) / ELEMENT.L;
+            Pv = ELEMENT.section.A * ELEMENT.material.E * (uv(1,2) - uv(1,1)) / ELEMENT.L;
+            
+            % compute (constant) axial torque
+            Tr = ELEMENT.section.J * ELEMENT.material.G * (qr(1,2) - qr(1,1)) / ELEMENT.L;
+            Tv = ELEMENT.section.J * ELEMENT.material.G * (qv(1,2) - qv(1,1)) / ELEMENT.L;
+            
+            % compute shape function 2nd derivatives at quadrature points
+            x = 0.5 * ([-sqrt(1/3), sqrt(1/3)] + 1); % sample at Gauss points
+            dphi_u(1,:) = (12*x - 6) / ELEMENT.L^2;
+            dphi_q(1,:) = (6*x - 4) / ELEMENT.L;
+            dphi_u(2,:) = (6 - 12*x) / ELEMENT.L^2;
+            dphi_q(2,:) = (6*x - 2) / ELEMENT.L;
+            
+            % compute curvature, moment about the y and z axes
+            kyr = dphi_u(1,:) * ur(2,1) + dphi_u(2,:) * ur(2,2) ...
+                + dphi_q(1,:) * qr(3,1) + dphi_q(2,:) * qr(3,2);
+            kzr = dphi_u(1,:) * ur(3,1) + dphi_u(2,:) * ur(3,2) ...
+                - dphi_q(1,:) * qr(2,1) - dphi_q(2,:) * qr(2,2);
+            Myr = ELEMENT.material.E * ELEMENT.section.I * kyr;
+            Mzr = ELEMENT.material.E * ELEMENT.section.I * kzr;
+            kyv = dphi_u(1,:) * uv(2,1) + dphi_u(2,:) * uv(2,2) ...
+                + dphi_q(1,:) * qv(3,1) + dphi_q(2,:) * qv(3,2);
+            kzv = dphi_u(1,:) * uv(3,1) + dphi_u(2,:) * uv(3,2) ...
+                - dphi_q(1,:) * qv(2,1) - dphi_q(2,:) * qv(2,2);
+            Myv = ELEMENT.material.E * ELEMENT.section.I * kyv;
+            Mzv = ELEMENT.material.E * ELEMENT.section.I * kzv;
+            
+            % compute shape function 2nd derivatives at end points
+            x = [0, 1]; % sample at end-points
+            dphi_u(1,:) = (12*x - 6) / ELEMENT.L^2;
+            dphi_q(1,:) = (6*x - 4) / ELEMENT.L;
+            dphi_u(2,:) = (6 - 12*x) / ELEMENT.L^2;
+            dphi_q(2,:) = (6*x - 2) / ELEMENT.L;
+            
+            % compute curvature, moment about the y and z axes
+            ky = dphi_u(1,:) * ur(2,1) + dphi_u(2,:) * ur(2,2) ...
+               + dphi_q(1,:) * qr(3,1) + dphi_q(2,:) * qr(3,2);
+            kz = dphi_u(1,:) * ur(3,1) + dphi_u(2,:) * ur(3,2) ...
+               - dphi_q(1,:) * qr(2,1) - dphi_q(2,:) * qr(2,2);
+            My = ELEMENT.material.E * ELEMENT.section.I * ky;
+            Mz = ELEMENT.material.E * ELEMENT.section.I * kz;
+            
+            % compute max bending stress
+            if strcmp(ELEMENT.section.type, 'PIPE')
+                M = sqrt(My.^2 + Mz.^2);
+            elseif strcmp(ELEMENT.section.type, 'TUBE')
+                M = abs(My) + abs(Mz);
+            end
+            
+            % compute section derivatives
+            ds(1) = (sum(Myr .* Myv) + sum(Mzr .* Mzv)) * (ELEMENT.L / 2) / ELEMENT.material.E;
+            ds(2) =  sum(Tr .* Tv) * ELEMENT.L / ELEMENT.material.G;
+            ds(3) =  sum(Pr .* Pv) * ELEMENT.L / ELEMENT.material.E;
+            ds(4) =  ELEMENT.material.rho * ELEMENT.L;
+            
+            % compute minimum section properties:
+            
+            % check for gross yield (in tension or compression), due to
+            % combined axial and bending stress
+            %yield_capacity = (abs(Pr) / ELEMENT.section.A + max(M) / ELEMENT.section.S) / ELEMENT.material.Fy;
+            smin(1:2) = [abs(Pr) / ELEMENT.material.Fy, max(M) / ELEMENT.material.Fy];
+            
+            % check for gross yield in shear due only to torsion
+            %shear_capacity = 0.5 * (abs(Tr) / ELEMENT.section.S) / ELEMENT.material.Fy;
+            smin(3) = 0.5 * abs(Tr) / ELEMENT.material.Fy;
+            
+            % check for elastic buckling
+            %buckling_capacity = (Pr < 0) * abs(Pr) / (ELEMENT.material.E * ELEMENT.section.I * (pi / ELEMENT.L)^2);
+            smin(4) = (Pr < 0) * abs(Pr) / (ELEMENT.material.E * (pi / ELEMENT.L)^2);
+            
+        end % computeSectionDerivatives
+        
+        % =============================================================== %
         
         % Compute ELEMENT capacity
         function [ capacity ] = computeCapacity(ELEMENT, displacements)
@@ -204,6 +420,8 @@ classdef Element < handle
             
         end
         
+        % =============================================================== %
+        
         % Plot deformed ELEMENT
         function plotDeformed(ELEMENT, displacements)
             % create cylinder
@@ -245,6 +463,8 @@ classdef Element < handle
             surf([x1(1,:); x2(1,:)],[x1(2,:); x2(2,:)],[x1(3,:); x2(3,:)], ...
                  'EdgeColor','none','FaceColor','b','FaceAlpha',0.6)
         end
+        
+        % =============================================================== %
         
         % Plot ELEMENT capacity
         function plotCapacity(ELEMENT)

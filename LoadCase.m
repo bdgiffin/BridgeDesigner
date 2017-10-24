@@ -381,6 +381,16 @@ classdef LoadCase < handle
         end % computeJointDisplacements
         
         % =============================================================== %
+        
+        % Compute LOADCASE virtual joint forces
+        function [ F ] = computeVirtualForces(LOADCASE, C)
+            % compute the virtual joint forces for the assigned load case
+            u = sum(LOADCASE.measurements,2);
+            F = zeros(length(LOADCASE.loads(:,end)),1);
+            F(LOADCASE.dofMap) = C\(C'\u(LOADCASE.dofMap));
+        end % computeVirtualForces
+        
+        % =============================================================== %
                 
         % Compute LOADCASE deflection
         function [ d ] = computeDeflection(LOADCASE, C)
