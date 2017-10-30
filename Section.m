@@ -5,6 +5,8 @@ classdef Section < handle
     properties (SetAccess = public)
         name
         type
+        d
+        t
         A % cross-sectional area
         I % 2nd moment of aera
         J % polar moment of area
@@ -16,6 +18,8 @@ classdef Section < handle
         % SECTION object constructor
         function SECTION = Section(name, type, d, t)
             SECTION.name = strtrim(name);
+            SECTION.d = d;
+            SECTION.t = t;
             if strcmp(strtrim(type), 'PIPE')
                 % circular pipe section
                 %    d = outer diameter
@@ -35,6 +39,23 @@ classdef Section < handle
                 SECTION.J = 2 * SECTION.I;
                 SECTION.c = d/2;
             end
+        end
+        
+        % SECTION distinct copy constructor
+        function SECTION = copy(section)
+            SECTION = Section(section.name, section.type, section.d, section.t);
+        end
+        
+        % SECTION copy data method
+        function copyData(SECTION, section)
+            SECTION.name = section.name;
+            SECTION.type = section.type;
+            SECTION.d = section.d;
+            SECTION.t = section.t;
+            SECTION.A = section.A;
+            SECTION.I = section.I;
+            SECTION.J = section.J;
+            SECTION.c = section.c;
         end
     end
     

@@ -374,20 +374,20 @@ classdef LoadCase < handle
         % =============================================================== %
         
         % Compute LOADCASE joint displacements
-        function [ U ] = computeJointDisplacements(LOADCASE, C)
+        function [ U ] = computeJointDisplacements(LOADCASE, stepID, C)
             % compute the final joint displacements for the assigned load case
-            U = zeros(length(LOADCASE.loads(:,end)),1);
-            U(LOADCASE.dofMap) = C\(C'\LOADCASE.loads(LOADCASE.dofMap,end));
+            U = zeros(length(LOADCASE.loads(:,stepID)),1);
+            U(LOADCASE.dofMap) = C\(C'\LOADCASE.loads(LOADCASE.dofMap,stepID));
         end % computeJointDisplacements
         
         % =============================================================== %
         
         % Compute LOADCASE virtual joint forces
-        function [ F ] = computeVirtualForces(LOADCASE, C)
+        function [ V ] = computeVirtualDisplacements(LOADCASE, stepID, C)
             % compute the virtual joint forces for the assigned load case
-            u = sum(LOADCASE.measurements,2);
-            F = zeros(length(LOADCASE.loads(:,end)),1);
-            F(LOADCASE.dofMap) = C\(C'\u(LOADCASE.dofMap));
+            u = LOADCASE.measurements * LOADCASE.intervals(:,stepID);
+            V = zeros(length(LOADCASE.loads(:,stepID)),1);
+            V(LOADCASE.dofMap) = C\(C'\u(LOADCASE.dofMap));
         end % computeVirtualForces
         
         % =============================================================== %

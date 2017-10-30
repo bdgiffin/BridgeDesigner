@@ -43,25 +43,37 @@ axes = [ '+x';   % span-direction
 %   - Use the layer naming convention as it appears in the AutoCAD model
 %   - Refer to the "defineProperties.m" file regarding the naming
 %     convention for different tubing sections
-%            layer        section
-active = { 'Decking',  'SQ1X035-41';
-           'Webbing',  'R3/16X035-41';
-           'Laterals', 'R1/2X028-41';
-           'Chords',   'R1-1/4X035-41';
-           'Tendons',  'R1/2X028-41';
-           'Legs',     'R1X028-41' };
+%            layer         section
+active = { 'Decking',  'S-1D0000X0D035';
+           'Webbing',  'R-0D1875X0D035';
+           'Laterals', 'R-0D5000X0D028';
+           'Chords',   'R-1D2500X0D035';
+           'Tendons',  'R-0D5000X0D028';
+           'Legs',     'R-1D0000X0D028' };
+       
+% Specify the set of all layers that comprise the "decking" support surface
+%   - Specify decking as a cell array, containing the string names of
+%     all decking layers which are also in the "active" layer set
+decking = {'Decking'};
 
 % Create the analysis model as a "Structure" class object, indicating
 %   the "dxf" file, coordinate "axes", and "active" layers,
 %   defined previously.
 fprintf('creating model...\n')
-bridge = Structure(dxf, axes, active);
+bridge = Structure(dxf, axes, active, decking);
 
 % Optimize all member sections in the model, indicating how many 
 %   non-linear iterations to perform before stopping, and what
 %   factor of safety to use to design against local member failure
 fprintf('optimizing member sections...\n')
-Niterations = 3; % maximum number of iterations
-safetyFactor = 1.2; % factor of safety
-bridge.optimizeMemberSectionsExplicit(Niterations, safetyFactor);
-bridge.plotUndeformed()
+Niterations = 5; % maximum number of iterations to run
+safetyFactor = 1.4; % factor of safety to use while optimizing members
+bridge.optimizeMemberSections(Niterations, safetyFactor);
+bridge.computeMemberCapacities();
+
+% Specify an output .dxf file (readable in AutoCAD), which will indicate
+%   all of the optimized member cross-sections determined by the 
+%   optimization procedure. These will be written to the file whose name
+%   is indicated as the input to the "writeDXF" function
+%   (e.g. 'optimized_example.dxf')
+bridge.writeDXF('optimized_example.dxf')

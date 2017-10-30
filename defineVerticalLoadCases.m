@@ -5,7 +5,7 @@ function [ loads, measurements ] = defineVerticalLoadCases()
 % define the load "pattern" matrix
 Ncases = 12; % S1-6, (mirrored) 
 Nloads = 2;  % L1 & L2
-Nsteps = 2;  % Pre-load, full-load
+Nsteps = 3;  % Pre-load, L1, L2
 loads = cell(Ncases, Nloads, Nsteps);
 
 % reference: +1 = measure from east (+x) end;
@@ -37,9 +37,9 @@ locations = [ 6*12+8, 1*12+0; ...  % S1
 width = 36; % in
 
 % weight: magnitude of the total applied distributed load (in pounds)
-%          step 1  step 2
-weights = [  150,   1550; ... % L1
-              50,   1050];    % L2
+%          Pre-load   L1      L2
+weights = [  150,    1550,   1550; ... % L1
+              50,      50,   1050 ];   % L2
         
 % assign load pattern definitions
 for i = 1:Ncases
@@ -85,7 +85,7 @@ locations = [ 8*12+2, 2*12+6;  ...  % S1
 % start/end_step: denotes the index of the load steps at which deflections
 %                 will be zeroed (start) and measured (end)
 start_step = 1;
-end_step = 2;
+end_step = 3;
 
 % assign load pattern definitions
 for i = 1:Ncases

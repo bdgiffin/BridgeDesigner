@@ -3,6 +3,8 @@ classdef Frame < handle
     
     % FRAME object properties
     properties (SetAccess = public)
+        joints
+        Nelements
         elements
         material
         section
@@ -11,11 +13,13 @@ classdef Frame < handle
     % FRAME object methods
     methods
         % FRAME object constructor
-        function FRAME = Frame(joints, elements, material, section)
+        function FRAME = Frame(joints, frame, elements, material, section)
+            FRAME.joints = joints(frame);
             FRAME.material = material;
-            FRAME.section = section;
-            FRAME.elements = cell(size(elements,1),1);
-            for i = 1:size(elements,1)
+            FRAME.section = copy(section);
+            FRAME.Nelements = size(elements,1);
+            FRAME.elements = cell(FRAME.Nelements,1);
+            for i = 1:FRAME.Nelements
                 FRAME.elements{i} = Element(joints(elements(i,:)), FRAME.material, FRAME.section);
             end
         end

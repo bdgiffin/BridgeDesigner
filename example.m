@@ -43,35 +43,35 @@ axes = [ '+x';   % span-direction
 %   - Use the layer naming convention as it appears in the AutoCAD model
 %   - Refer to the "defineProperties.m" file regarding the naming
 %     convention for different tubing sections
-%            layer        section
-active = { 'Decking',  'SQ1X035-41';
-           'Webbing',  'R3/16X035-41';
-           'Laterals', 'R1/2X028-41';
-           'Chords',   'R1-1/4X035-41';
-           'Tendons',  'R1/2X028-41';
-           'Legs',     'R1X028-41' };
+%            layer         section
+active = { 'Decking',  'S-1D0000X0D035';
+           'Webbing',  'R-0D1875X0D035';
+           'Laterals', 'R-0D5000X0D028';
+           'Chords',   'R-1D2500X0D035';
+           'Tendons',  'R-0D5000X0D028';
+           'Legs',     'R-1D0000X0D028' };
+       
+% Specify the set of all layers that comprise the "decking" support surface
+%   - Specify decking as a cell array, containing the string names of
+%     all decking layers which are also in the "active" layer set
+decking = {'Decking'};
 
 % Create the analysis model as a "Structure" class object, indicating
 %   the "dxf" file, coordinate "axes", and "active" layers,
 %   defined previously.
 fprintf('creating model...\n')
-bridge = Structure(dxf, axes, active);
-
-% Optimize all member sections in the model, indicating how many 
-%   non-linear iterations to perform before stopping (e.g. 3)
-fprintf('optimizing member sections...\n')
-bridge.optimizeMemberSectionsImplicit(2);
+bridge = Structure(dxf, axes, active, decking);
 
 % Compute the (average) efficiency score for the newly created structure
 %   by invoking the "computeEfficiency" method defined on the
 %   "Structure" class object.
 fprintf('calculating score...\n')
-[ score, weight, deflections ] = bridge.computeEfficiency();
+[ scores, weight, deflections ] = bridge.computeEfficiency();
 % (Optionally) print the results to the Matlab command window
 fprintf('measured weight of structure = %6.2f lbs\n', weight)
 fprintf('average aggregate deflection = %7.4f in\n', mean(deflections))
 import java.text.*; fmt = DecimalFormat; % (for printing comma-separated #'s)
-fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(score))))
+fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(mean(scores)))))
 
 % Compute the worst-case lateral sway using the
 %   "computeLateralSway" method
@@ -105,4 +105,3 @@ fprintf('analysis complete!\n')
 %     bending stress, torsional shear stress, and elastic buckling
 fprintf('computing member capacities...\n')
 bridge.computeMemberCapacities();
-

@@ -257,75 +257,73 @@ classdef Element < handle
         
         % =============================================================== %
         
-        % Compute ELEMENT section derivatives
-        function [ ds, smin ] = computeSectionDerivatives(ELEMENT, u, v)
+        % Compute ELEMENT stiffness derivatives
+        function [ ds, smin ] = computeStiffnessDerivatives(ELEMENT, u, v)
             % Assemble the section derivatives for the prismatic beam element
-            % ds(1) := d(cost)/dI^-1
-            % ds(2) := d(cost)/dJ^-1
-            % ds(3) := d(cost)/dA^-1
-            % ds(4) := d(cost)/dA
+            % ds(1) := d(cost)/dI^-1 (computed)
+            % ds(2) := d(cost)/dJ^-1 (computed)
+            % ds(3) := d(cost)/dA^-1 (computed)
+            % ds(4) := d(cost)/dA    (not computed)
             % smin(1) := d(axial+bending)/dA^-1
             % smin(2) := d(axial+bending)/dS^-1
             % smin(3) := d(shear)/dS^-1
             % smin(4) := d(buckling)/dI^-1
             
+            % copy local element data (for efficiency)
             R = ELEMENT.R;
+            L = ELEMENT.L;
+            E = ELEMENT.material.E;
+            G = ELEMENT.material.G;
+            Fy = ELEMENT.material.Fy;
+            A = ELEMENT.section.A;
+            I = ELEMENT.section.I;
+            J = ELEMENT.section.J;
             
             % compute the local element end-displacements and rotations
-            ur = zeros(3,2);
-            qr = zeros(3,2);
-            uv = zeros(3,2);
-            qv = zeros(3,2);
-            for i = 1:2
-                ur(:,i) = R' * u((1:3)+6*(i-1));
-                qr(:,i) = R' * u((4:6)+6*(i-1));
-                uv(:,i) = R' * v((1:3)+6*(i-1));
-                qv(:,i) = R' * v((4:6)+6*(i-1));
-            end
+            ur = R' * [u(1:3), u(7:9)];
+            qr = R' * [u(4:6), u(10:12)];
+            uv = R' * [v(1:3), v(7:9)];
+            qv = R' * [v(4:6), v(10:12)];
             
             % compute (constant) axial strain, force
-            Pr = ELEMENT.section.A * ELEMENT.material.E * (ur(1,2) - ur(1,1)) / ELEMENT.L;
-            Pv = ELEMENT.section.A * ELEMENT.material.E * (uv(1,2) - uv(1,1)) / ELEMENT.L;
+            Pr = A * E * (ur(1,2) - ur(1,1)) / L;
+            Pv = A * E * (uv(1,2) - uv(1,1)) / L;
             
             % compute (constant) axial torque
-            Tr = ELEMENT.section.J * ELEMENT.material.G * (qr(1,2) - qr(1,1)) / ELEMENT.L;
-            Tv = ELEMENT.section.J * ELEMENT.material.G * (qv(1,2) - qv(1,1)) / ELEMENT.L;
+            Tr = J * G * (qr(1,2) - qr(1,1)) / L;
+            Tv = J * G * (qv(1,2) - qv(1,1)) / L;
             
             % compute shape function 2nd derivatives at quadrature points
             x = 0.5 * ([-sqrt(1/3), sqrt(1/3)] + 1); % sample at Gauss points
-            dphi_u(1,:) = (12*x - 6) / ELEMENT.L^2;
-            dphi_q(1,:) = (6*x - 4) / ELEMENT.L;
-            dphi_u(2,:) = (6 - 12*x) / ELEMENT.L^2;
-            dphi_q(2,:) = (6*x - 2) / ELEMENT.L;
+            dphi_u = [(12*x - 6); (6-12*x)] / L^2;
+            dphi_q = [(6*x - 4); (6*x - 2)] / L;
             
             % compute curvature, moment about the y and z axes
             kyr = dphi_u(1,:) * ur(2,1) + dphi_u(2,:) * ur(2,2) ...
                 + dphi_q(1,:) * qr(3,1) + dphi_q(2,:) * qr(3,2);
             kzr = dphi_u(1,:) * ur(3,1) + dphi_u(2,:) * ur(3,2) ...
                 - dphi_q(1,:) * qr(2,1) - dphi_q(2,:) * qr(2,2);
-            Myr = ELEMENT.material.E * ELEMENT.section.I * kyr;
-            Mzr = ELEMENT.material.E * ELEMENT.section.I * kzr;
+            Myr = E * I * kyr;
+            Mzr = E * I * kzr;
             kyv = dphi_u(1,:) * uv(2,1) + dphi_u(2,:) * uv(2,2) ...
                 + dphi_q(1,:) * qv(3,1) + dphi_q(2,:) * qv(3,2);
             kzv = dphi_u(1,:) * uv(3,1) + dphi_u(2,:) * uv(3,2) ...
                 - dphi_q(1,:) * qv(2,1) - dphi_q(2,:) * qv(2,2);
-            Myv = ELEMENT.material.E * ELEMENT.section.I * kyv;
-            Mzv = ELEMENT.material.E * ELEMENT.section.I * kzv;
+            Myv = E * I * kyv;
+            Mzv = E * I * kzv;
             
             % compute shape function 2nd derivatives at end points
             x = [0, 1]; % sample at end-points
-            dphi_u(1,:) = (12*x - 6) / ELEMENT.L^2;
-            dphi_q(1,:) = (6*x - 4) / ELEMENT.L;
-            dphi_u(2,:) = (6 - 12*x) / ELEMENT.L^2;
-            dphi_q(2,:) = (6*x - 2) / ELEMENT.L;
+            dphi_u = [(12*x - 6); (6-12*x)] / L^2;
+            dphi_q = [(6*x - 4); (6*x - 2)] / L;
             
             % compute curvature, moment about the y and z axes
             ky = dphi_u(1,:) * ur(2,1) + dphi_u(2,:) * ur(2,2) ...
                + dphi_q(1,:) * qr(3,1) + dphi_q(2,:) * qr(3,2);
             kz = dphi_u(1,:) * ur(3,1) + dphi_u(2,:) * ur(3,2) ...
                - dphi_q(1,:) * qr(2,1) - dphi_q(2,:) * qr(2,2);
-            My = ELEMENT.material.E * ELEMENT.section.I * ky;
-            Mz = ELEMENT.material.E * ELEMENT.section.I * kz;
+            My = E * I * ky;
+            Mz = E * I * kz;
             
             % compute max bending stress
             if strcmp(ELEMENT.section.type, 'PIPE')
@@ -335,27 +333,42 @@ classdef Element < handle
             end
             
             % compute section derivatives
-            ds(1) = (sum(Myr .* Myv) + sum(Mzr .* Mzv)) * (ELEMENT.L / 2) / ELEMENT.material.E;
-            ds(2) =  sum(Tr .* Tv) * ELEMENT.L / ELEMENT.material.G;
-            ds(3) =  sum(Pr .* Pv) * ELEMENT.L / ELEMENT.material.E;
-            ds(4) =  ELEMENT.material.rho * ELEMENT.L;
+            ds = zeros(1,4);
+            ds(1) = 0.5 * (Myr * Myv' + Mzr * Mzv') * L / E;
+            ds(2) =  Tr * Tv * L / G;
+            ds(3) =  Pr * Pv * L / E;
             
             % compute minimum section properties:
             
             % check for gross yield (in tension or compression), due to
             % combined axial and bending stress
-            %yield_capacity = (abs(Pr) / ELEMENT.section.A + max(M) / ELEMENT.section.S) / ELEMENT.material.Fy;
-            smin(1:2) = [abs(Pr) / ELEMENT.material.Fy, max(M) / ELEMENT.material.Fy];
+            %yield_capacity = (abs(Pr) / A + max(M) / S) / Fy;
+            smin(1:2) = [abs(Pr) / Fy, max(M) / Fy];
             
             % check for gross yield in shear due only to torsion
-            %shear_capacity = 0.5 * (abs(Tr) / ELEMENT.section.S) / ELEMENT.material.Fy;
-            smin(3) = 0.5 * abs(Tr) / ELEMENT.material.Fy;
+            %shear_capacity = 0.5 * (abs(Tr) / S) / Fy;
+            smin(3) = 0.5 * abs(Tr) / Fy;
             
             % check for elastic buckling
-            %buckling_capacity = (Pr < 0) * abs(Pr) / (ELEMENT.material.E * ELEMENT.section.I * (pi / ELEMENT.L)^2);
-            smin(4) = (Pr < 0) * abs(Pr) / (ELEMENT.material.E * (pi / ELEMENT.L)^2);
+            %buckling_capacity = (Pr < 0) * abs(Pr) / (E * I * (pi / L)^2);
+            smin(4) = (Pr < 0) * abs(Pr) / (E * (pi / L)^2);
             
-        end % computeSectionDerivatives
+        end % computeStiffnessDerivatives
+        
+        % =============================================================== %
+        
+        % Compute ELEMENT weight derivatives
+        function [ ds ] = computeWeightDerivatives(ELEMENT)
+            % Assemble the section derivatives for the prismatic beam element
+            % ds(1) := d(cost)/dI^-1 (not computed)
+            % ds(2) := d(cost)/dJ^-1 (not computed)
+            % ds(3) := d(cost)/dA^-1 (not computed)
+            % ds(4) := d(cost)/dA    (computed)
+            
+            ds = zeros(1,4);
+            ds(4) = ELEMENT.material.rho * ELEMENT.L;
+            
+        end % computeWeightDerivatives
         
         % =============================================================== %
         
@@ -363,37 +376,38 @@ classdef Element < handle
         function [ capacity ] = computeCapacity(ELEMENT, displacements)
             %  Assemble member capacity for the prismatic beam element
             R = ELEMENT.R;
+            L = ELEMENT.L;
+            E = ELEMENT.material.E;
+            G = ELEMENT.material.G;
+            rho = ELEMENT.material.rho;
+            Fy = ELEMENT.material.Fy;
+            c = ELEMENT.section.c;
+            A = ELEMENT.section.A;
+            I = ELEMENT.section.I;
+            J = ELEMENT.section.J;
             
             % compute the local element end-displacements and rotations
-            u = zeros(3,2);
-            q = zeros(3,2);
-            for i = 1:2
-                u(:,i) = R' * displacements((1:3)+6*(i-1));
-                q(:,i) = R' * displacements((4:6)+6*(i-1));
-            end
+            u = R' * [displacements(1:3), displacements(7:9)];
+            q = R' * [displacements(4:6), displacements(10:12)];
             
-            % compute (constant) axial strain, stress
-            ex = (u(1,2) - u(1,1)) / ELEMENT.L;
-            sx = ELEMENT.material.E * ex;
+            % compute (constant) axial stress
+            sx = E * (u(1,2) - u(1,1)) / L;
             
-            % compute (constant) axial twist, torsional shear stress
-            rx = (q(1,2) - q(1,1)) / ELEMENT.L;
-            tx = ELEMENT.material.G * rx * ELEMENT.section.c;
+            % compute (constant) torsional shear stress
+            tx = G * c * (q(1,2) - q(1,1)) / L;
             
-            % compute shape function 2nd derivatives at quadrature points
+            % compute shape function 2nd derivatives at end-points
             x = [0.0, 1.0]; % sample at the end-points
-            dphi_u(1,:) = (12*x - 6) / ELEMENT.L^2;
-            dphi_q(1,:) = (6*x - 4) / ELEMENT.L;
-            dphi_u(2,:) = (6 - 12*x) / ELEMENT.L^2;
-            dphi_q(2,:) = (6*x - 2) / ELEMENT.L;
+            dphi_u = [(12*x - 6); (6-12*x)] / L^2;
+            dphi_q = [(6*x - 4); (6*x - 2)] / L;
             
             % compute curvature, moment about the y and z axes
             ky = dphi_u(1,:) * u(2,1) + dphi_u(2,:) * u(2,2) ...
                + dphi_q(1,:) * q(3,1) + dphi_q(2,:) * q(3,2);
             kz = dphi_u(1,:) * u(3,1) + dphi_u(2,:) * u(3,2) ...
                - dphi_q(1,:) * q(2,1) - dphi_q(2,:) * q(2,2);
-            My = ELEMENT.material.E * ELEMENT.section.I * ky;
-            Mz = ELEMENT.material.E * ELEMENT.section.I * kz;
+            My = E * I * ky;
+            Mz = E * I * kz;
             
             % compute max bending stress
             if strcmp(ELEMENT.section.type, 'PIPE')
@@ -401,17 +415,17 @@ classdef Element < handle
             elseif strcmp(ELEMENT.section.type, 'TUBE')
                 M = abs(My) + abs(Mz);
             end
-            sb = M * ELEMENT.section.c / ELEMENT.section.I;
+            sb = M * c / I;
             
             % check for gross yield (in tension or compression), due to
             % combined axial and bending stress
-            yield_capacity = (abs(sx) + max(sb)) / ELEMENT.material.Fy;
+            yield_capacity = (abs(sx) + max(sb)) / Fy;
             
             % check for gross yield in shear due only to torsion
-            shear_capacity = abs(tx) / ELEMENT.material.Fy;
+            shear_capacity = abs(tx) / Fy;
             
             % check for elastic buckling
-            Fcr = ELEMENT.material.E * ELEMENT.section.I * (pi / ELEMENT.L)^2 / ELEMENT.section.A;
+            Fcr = E * I * (pi / L)^2 / A;
             buckling_capacity = (sx < 0) * abs(sx) / Fcr;
             
             % compute and store the overall member capacity

@@ -1,7 +1,7 @@
-function [ score ] = computeEfficiency( weight, deflection )
+function [ scores ] = computeEfficiency( weight, deflections )
 % COMPUTE EFFICIENCY:
-%  calculate the overall efficiency score from the
-%  specified weight and aggregate deflection
+%  calculate the overall efficiency scores from the
+%  specified weight and aggregate deflections
 
 % specify cost multipliers
 C_w0 =    5000; % ($/lb)
@@ -10,11 +10,11 @@ C_d  = 3000000; % ($/in)
 
 % calculate overall score
 if (weight < 120)
-    score = C_d * deflection;
+    scores = C_d * deflections;
 elseif (weight < 200)
-    score = C_d * deflection + C_w0 * (weight - 120);
+    scores = C_d * deflections + C_w0 * (weight - 120);
 else
-    score = C_d * deflection + C_w1 * (weight - 184);
+    scores = C_d * deflections + C_w1 * (weight - 184);
 end
 
 end

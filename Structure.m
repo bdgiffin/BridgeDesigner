@@ -1,8 +1,8 @@
 classdef Structure < handle
     % STRUCTURE object definition
     
-    % STRUCTURE object properties
-    properties (SetAccess = private)
+    % STRUCTURE (private) object properties
+    properties (Access = private)
         joints
         frames
         verticalCases
@@ -12,17 +12,16 @@ classdef Structure < handle
         needStiffness
         R % reaction matrix
         K % stiffness matrix
-        C % compliance matrix (cholesky factor of stiffness)
-        
+        C % Cholesky factorization of the stiffness matrix
     end % properties
     
-    % STRUCTURE object methods
+    % STRUCTURE (public) object methods
     methods
         
         % =============================================================== %
         
         % STRUCTURE object constructor
-        function STRUCTURE = Structure(dxf, axes, active)
+        function STRUCTURE = Structure(dxf, axes, active, decking)
             % read the input .dxf drawing file
             [ nodes, frames, groups, layers ] = STRUCTURE.readDXF(dxf);
             
@@ -62,22 +61,610 @@ classdef Structure < handle
                 sectionName = active{ismember(active(:,1),layers{groups(i)}),2};
                 for j = 1:size(sections,1)
                     if (strcmp(sectionName, sections{j}.name))
-                        STRUCTURE.frames{i} = Frame(STRUCTURE.joints, frameElements, ...
-                                              material, sections{j});
+                        STRUCTURE.frames{i} = Frame(STRUCTURE.joints, frames(i,:), ...
+                                              frameElements, material, sections{j});
                         break
                     end
                 end
             end
             
-            % get all elements belonging to the "Decking" layer
-            decking = elements(groups(frameIDs) == find(ismember(layers,'Decking')),:);
+            % get all elements belonging to the "decking" layer(s)
+            deckingElements = elements(ismember(groups(frameIDs),find(ismember(layers,decking))),:);
 
             % define all vertical and lateral load cases
-            STRUCTURE.defineLoadCases(nodes, decking);
+            STRUCTURE.defineLoadCases(nodes, deckingElements);
     
             % initialize compliance parameter
             STRUCTURE.needStiffness = true;
         end % Structure
+        
+        % =============================================================== %
+                
+        % Analyze STRUCTURE
+        function [ score, sway, swayID, factor, mode, bucklingID ] = analyze(STRUCTURE)
+            % run analysis of the structure
+            
+            % compute structural efficiency score
+            [ score ] = STRUCTURE.computeEfficiency();
+            
+            % compute lateral deflection
+            [ sway, swayID ] = STRUCTURE.computeLateralSway();
+
+            % determine the elastic buckling load factor and mode shape
+            [ factor, mode, bucklingID ] = STRUCTURE.computeBucklingLoad();
+        end
+        
+        % =============================================================== %
+        
+        % Compute STRUCTURE efficiency score
+        function [ scores, weight, deflections ] = computeEfficiency(STRUCTURE)
+            % compute the overall efficiency score of the structure ($)
+
+            % compute the structure's overall weight
+            weight = STRUCTURE.computeWeight();
+            
+            % compute structure compliance, if necessary
+            STRUCTURE.computeCompliance();
+            
+            % loop through all vertical load cases
+            deflections = zeros(length(STRUCTURE.verticalCases),1);
+            for i = 1:length(STRUCTURE.verticalCases)
+                deflections(i) = STRUCTURE.verticalCases{i}.computeDeflection(STRUCTURE.C);
+            end
+            
+            % compute efficiency score
+            [ scores ] = computeEfficiency(weight, deflections);
+        end % computeEfficiency
+        
+        % =============================================================== %
+                        
+        % Compute STRUCTURE lateral sway
+        function [ sway, caseID ] = computeLateralSway(STRUCTURE)
+            % compute the worst-case lateral sway of the structure (in)
+            
+            % compute structure compliance, if necessary
+            STRUCTURE.computeCompliance();
+            
+            % loop through all lateral load cases
+            deflection = zeros(length(STRUCTURE.lateralCases),1);
+            for i = 1:length(STRUCTURE.lateralCases)
+                deflection(i) = STRUCTURE.lateralCases{i}.computeDeflection(STRUCTURE.C);
+            end
+            
+            % determine the worst-case lateral deflection
+            [ sway, caseID ] = max(deflection);
+        end % computeLateralSway
+        
+        % =============================================================== %
+                
+        % Compute STRUCTURE buckling load
+        function [ factor, mode, caseID ] = computeBucklingLoad(STRUCTURE)
+            % compute the critical buckling load factor for the structure
+            
+            % compute structure compliance, if necessary
+            STRUCTURE.computeCompliance();
+            
+            % loop through all vertical load cases
+            factors = zeros(length(STRUCTURE.verticalCases),size(STRUCTURE.verticalCases{1}.loads,2)-1);
+            modes = cell(length(STRUCTURE.verticalCases),size(STRUCTURE.verticalCases{1}.loads,2)-1);
+            for i = 1:length(STRUCTURE.verticalCases)
+                for jstep = 2:size(STRUCTURE.verticalCases{i}.loads,2)
+                    U = STRUCTURE.verticalCases{i}.computeJointDisplacements(jstep, STRUCTURE.C);
+                    G = STRUCTURE.computeGeometricStiffness(U);
+                    % solve the generalized eigenvalue problem for the critical load factors
+                    [ eigenvectors, D ] = eigs(STRUCTURE.K, -G, 5, 'SM');
+                    eigenvalues = diag(D);
+                    modes{i,jstep-1} = zeros(size(U));
+                    if any(eigenvalues > 0)
+                        pos = find(eigenvalues > 0);
+                        [factors(i,jstep-1), loc] = min(eigenvalues(pos));
+                        loc = pos(loc);
+                        modes{i,jstep-1}(STRUCTURE.verticalCases{i}.dofMap) = eigenvectors(:,loc);
+                    else
+                        [factors(i,jstep-1), loc] = max(eigenvalues);
+                        modes{i,jstep-1}(STRUCTURE.verticalCases{i}.dofMap) = eigenvectors(:,loc);
+                    end
+                end
+            end
+            
+            % compute minimum buckling load factor
+            if any(factors(:) > 0)
+                pos = find(factors(:) > 0);
+                [ factor, caseID ] = min(factors(pos));
+                caseID = mod(pos(caseID),length(STRUCTURE.verticalCases));
+                mode = modes{caseID};
+            else
+                [ factor, caseID ] = max(factors(:));
+                caseID = mod(pos(caseID),length(STRUCTURE.verticalCases));
+                mode = modes{caseID};
+            end
+        end % computeBucklingLoad
+        
+        % =============================================================== %
+        
+        % Compute STRUCTURE member capacities
+        function computeMemberCapacities(STRUCTURE)
+            % compute the worst-case capacities of all members
+            
+            % compute structure compliance, if necessary
+            STRUCTURE.computeCompliance();
+            
+            % loop through all vertical load cases
+            for i = 1:length(STRUCTURE.verticalCases)
+                for jstep = 2:size(STRUCTURE.verticalCases{i}.loads,2)
+                    U = STRUCTURE.verticalCases{i}.computeJointDisplacements(jstep, STRUCTURE.C);
+                    for j = 1:length(STRUCTURE.frames)
+                        for k = 1:STRUCTURE.frames{j}.Nelements
+                            STRUCTURE.frames{j}.elements{k}.computeCapacity(U(STRUCTURE.frames{j}.elements{k}.dofMap));
+                        end
+                    end
+                end
+            end
+            
+            % plot member capacities
+            STRUCTURE.plotCapacities();
+        end % computeMemberCapacities
+        
+        % =============================================================== %
+                
+        % Compute STRUCTURE reaction forces
+        function computeReactions(STRUCTURE, caseID)
+            % compute structure compliance, if necessary
+            STRUCTURE.computeCompliance();
+            
+            % loop through all vertical load cases
+            for i = 1:length(STRUCTURE.verticalCases)
+                U = STRUCTURE.verticalCases{i}.computeJointDisplacements(STRUCTURE.C);
+                r = STRUCTURE.R * U(STRUCTURE.verticalCases{i}.dofMap);
+            end
+            STRUCTURE.plotLoaded(STRUCTURE.verticalCases{caseID}.loads(:,end))
+        end % computeReactions
+        
+        % =============================================================== %
+        
+        % Compute STRUCTURE weight
+        function [ weight ] = computeWeight(STRUCTURE)
+            % compute the overall weight of the structure (lbs)
+
+            % loop over all elements in the structure
+            weight = 0.0;
+            for i = 1:length(STRUCTURE.frames)
+                for j = 1:STRUCTURE.frames{i}.Nelements
+                    weight = weight + STRUCTURE.frames{i}.elements{j}.computeWeight();
+                end
+            end
+            
+            % assume that the overall structure weight is computed based
+            %   on the estimated weight of all members, plus a ~20%
+            %   additional weight associated with welds and connections;
+            %   call this multiplicative increase in overall weight
+            %   the "weight factor":
+            WF = 1.2;
+            weight = WF * weight;
+            
+        end % computeWeight
+        
+        % =============================================================== %
+        
+        % Optimize member sections in the STRUCTURE
+        function optimizeMemberSections(STRUCTURE, Niterations, FS)
+            % define scoring parameters (hard-coded for NSSBC 2018)
+            Cd  = 3.0e6; % ($/in)
+            Cw0 = 5.0e3; % ($/lb)
+            
+            % assume that the overall structure weight is computed based
+            %   on the estimated weight of all members, plus a ~20%
+            %   additional weight associated with welds and connections;
+            %   call this multiplicative increase in overall weight
+            %   the "weight factor":
+            WF = 1.2;
+            
+            % get the list of all available tubing sections
+            [ ~, sections ] = defineProperties();
+            Nsections = length(sections);
+            
+            % get number of members and load cases
+            Nmem = length(STRUCTURE.frames);
+            Ncases = length(STRUCTURE.verticalCases);
+            
+            % get vector of section properties
+            props = zeros(Nsections,4);
+            caps  = zeros(Nsections,4);
+            for i = 1:Nsections
+                props(i,:) = [ 1.0/sections{i}.I, ...
+                               1.0/sections{i}.J, ...
+                               1.0/sections{i}.A, ...
+                                   sections{i}.A ];
+                caps(i,:) = [ 1.0/sections{i}.A, ...
+                              sections{i}.c/sections{i}.I, ...
+                              sections{i}.c/sections{i}.I, ...
+                              1.0/sections{i}.I ];
+            end
+            
+            [ scores, weight, deflections ] = STRUCTURE.computeEfficiency();
+            fprintf('measured weight of structure = %6.2f lbs\n', weight)
+            fprintf('average aggregate deflection = %7.4f in\n', mean(deflections))
+            import java.text.*; fmt = DecimalFormat; % (for printing comma-separated #'s)
+            fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(mean(scores)))))
+            
+            % perform a fixed number of iterations
+            for iter = 1:Niterations
+                % print current iteration number
+                fprintf('iteration: %5i\n',iter)
+
+                % compute structure compliance
+                STRUCTURE.computeCompliance();
+
+                % optimize members individually
+                dS = zeros(Nmem,4);
+                Smin = zeros(Nmem,4);
+                for i = 1:Ncases
+                    % compute structure section derivatives
+                    [dSi, Smini] = STRUCTURE.computeSectionDerivatives(STRUCTURE.verticalCases{i});
+                    dS = dS + dSi / Ncases;
+                    Smin = max(Smin, Smini);
+                end
+                
+                % multiply by scoring parameters
+                Cw = Cw0 * min(1.0, weight / 120);
+                dS(:,1:3) = Cd * abs(dS(:,1:3));
+                dS(:,4)   = Cw * WF * dS(:,4);
+                Smin = Smin * FS;
+
+                % set new sections based on the updated derivatives
+                for i = 1:Nmem
+                    % choose the section that induces the least overall
+                    %   cost, which does not fail under the loading
+                    id = 0;
+                    for j = 1:Nsections
+                        if (sum(Smin(i,1:2).*caps(j,1:2)) < 1.0)&&(Smin(i,3)*caps(j,3) < 1.0)
+                            if (Smin(i,4) == 0)||(Smin(i,4)*caps(j,4) < 1.0)
+                                if (id == 0)
+                                    id = j;
+                                    cost = sum(dS(i,:) .* props(j,:));
+                                elseif (sum(dS(i,:) .* props(j,:)) < cost)
+                                    id = j;
+                                    cost = sum(dS(i,:) .* props(j,:));
+                                end
+                            end
+                        end
+                    end
+                    % if the member fails, regardless: don't change it
+                    if (id ~= 0)
+                        STRUCTURE.frames{i}.section.copyData(sections{id});
+                    end
+                end
+                
+                % reset the needStiffness flag to true
+                STRUCTURE.needStiffness = true;
+                
+                [ scores, weight, deflections ] = STRUCTURE.computeEfficiency();
+                fprintf('measured weight of structure = %6.2f lbs\n', weight)
+                fprintf('average aggregate deflection = %7.4f in\n', mean(deflections))
+                import java.text.*; fmt = DecimalFormat; % (for printing comma-separated #'s)
+                fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(mean(scores)))))
+            end
+        end % optimizeMemberSections
+        
+        % =============================================================== % 
+                
+        % Plot undeformed STRUCTURE
+        function plotUndeformed(STRUCTURE)
+            % plot the undeformed structure
+            U = zeros(6*length(STRUCTURE.joints),1);
+            STRUCTURE.plotDeformed(U)
+        end % plotUndeformed
+        
+        % =============================================================== %
+        
+        % Plot deformed STRUCTURE
+        function plotDeformed(STRUCTURE, U)
+            % plot the deformed structure
+            figure('Name','Deformed Shape')
+            hold on
+            % plot all elements
+            for i = 1:length(STRUCTURE.frames)
+                for j = 1:STRUCTURE.frames{i}.Nelements
+                    u = U(STRUCTURE.frames{i}.elements{j}.dofMap);
+                    STRUCTURE.frames{i}.elements{j}.plotDeformed(u);
+                end
+            end
+            % plot all supports
+            for a = 1:length(STRUCTURE.joints)
+                if (sum(STRUCTURE.joints{a}.dofs < 0) == 3)
+                    plot3(STRUCTURE.joints{a}.X(1), ...
+                          STRUCTURE.joints{a}.X(2), ...
+                          STRUCTURE.joints{a}.X(3), ...
+                          '^g')
+                end
+            end
+            
+            % set plotting options
+            axis equal
+            xlabel('Span')
+            ylabel('Lateral')
+            zlabel('Up')
+            xlim([-120, +120])
+            ylim([-30, +30])
+            zlim([0.0, 60])
+            view(0,0)
+        end % plotDeformed
+        
+        % =============================================================== %
+        
+        % Plot loaded STRUCTURE
+        function plotLoaded(STRUCTURE, F)
+            % plot the loaded structure
+            figure('Name','Applied Forces')
+            hold on
+            % plot all elements
+            for i = 1:length(STRUCTURE.frames)
+                for j = 1:STRUCTURE.frames{i}.Nelements
+                    u = zeros(12,1);
+                    STRUCTURE.frames{i}.elements{j}.plotDeformed(u);
+                end
+            end
+            % plot all loads
+            for a = 1:length(STRUCTURE.joints)
+                quiver3(STRUCTURE.joints{a}.X(1), ...
+                        STRUCTURE.joints{a}.X(2), ...
+                        STRUCTURE.joints{a}.X(3), ...
+                        F(1+6*(a-1)),F(2+6*(a-1)),F(3+6*(a-1)), ...
+                        100,'g')
+                quiver3(STRUCTURE.joints{a}.X(1), ...
+                        STRUCTURE.joints{a}.X(2), ...
+                        STRUCTURE.joints{a}.X(3), ...
+                        F(4+6*(a-1)),F(5+6*(a-1)),F(6+6*(a-1)), ...
+                        100,'r')
+            end
+            % plot all supports
+            for a = 1:length(STRUCTURE.joints)
+                if (sum(STRUCTURE.joints{a}.dofs < 0) == 3)
+                    plot3(STRUCTURE.joints{a}.X(1), ...
+                          STRUCTURE.joints{a}.X(2), ...
+                          STRUCTURE.joints{a}.X(3), ...
+                          '^g')
+                end
+            end
+            
+            % set plotting options
+            axis equal
+            xlabel('Span')
+            ylabel('Lateral')
+            zlabel('Up')
+            xlim([-120, +120])
+            ylim([-30, +30])
+            zlim([0.0, 60])
+            view(0,0)
+        end % plotLoaded
+        
+        % =============================================================== %
+                
+        % Plot capacities of all members in the STRUCTURE
+        function plotCapacities(STRUCTURE)
+            % plot member capacities
+            figure('Name','Member Capacities')
+            hold on
+            % plot all elements
+            for i = 1:length(STRUCTURE.frames)
+                for j = 1:STRUCTURE.frames{i}.Nelements
+                    STRUCTURE.frames{i}.elements{j}.plotCapacity();
+                end
+            end
+            % plot all supports
+            for a = 1:length(STRUCTURE.joints)
+                if (sum(STRUCTURE.joints{a}.dofs < 0) == 3)
+                    plot3(STRUCTURE.joints{a}.X(1), ...
+                          STRUCTURE.joints{a}.X(2), ...
+                          STRUCTURE.joints{a}.X(3), ...
+                          '^g')
+                end
+            end
+            
+            % set plotting options
+            axis equal
+            xlabel('Span')
+            ylabel('Lateral')
+            zlabel('Up')
+            xlim([-120, +120])
+            ylim([-30, +30])
+            zlim([0.0, 60])
+            view(0,0)
+            cmap = [min(max((-2.0:0.01:2.0),0.0),1.0); ...
+                    min(2.0-abs(-2.0:0.01:2.0),1.0); ...
+                    min(max((2.0:-0.01:-2.0),0.0),1.0)]';
+            colormap(cmap)
+            cbar = colorbar;
+            ylabel(cbar,'Demand/Capacity ratio')
+            caxis([0.0,1.0])
+        end % plotCapacities
+        
+        % =============================================================== %
+                    
+        % Output STRUCTURE drawing data to a .dxf file
+        function writeDXF(STRUCTURE, dxf)
+            % create a .dxf file, and write the frame member data (sections)
+            
+            % define the AutoCAD color remapping scheme
+            colorRemap = [(10:10:240), (11:10:241), ...
+                          (12:10:242), (13:10:243), ...
+                          (14:10:244), (15:10:245), ...
+                          (16:10:246), (17:10:247), ...
+                          (18:10:248), (19:10:249)];
+            
+            % open dxf file
+            fid = fopen(dxf, 'w');
+            
+            % print the header section info
+            fprintf(fid, '999\n');
+            fprintf(fid, 'File generated by BridgeDesigner\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, 'SECTION\n');
+            fprintf(fid, '2\n');
+            fprintf(fid, 'HEADER\n');
+            fprintf(fid, '9\n');
+            fprintf(fid, '$ACADVER\n');
+            fprintf(fid, '1\n');
+            fprintf(fid, 'AC1006\n');
+            fprintf(fid, '9\n');
+            fprintf(fid, '$INSBASE\n');
+            fprintf(fid, '10\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, '20\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, '30\n');
+            fprintf(fid, '0\n');
+            
+            % compute and print drawing extents
+            xmin = STRUCTURE.joints{1}.X;
+            xmax = STRUCTURE.joints{1}.X;
+            for a = 2:length(STRUCTURE.joints)
+                xmin = min(STRUCTURE.joints{a}.X, xmin);
+                xmax = max(STRUCTURE.joints{a}.X, xmax);
+            end
+            fprintf(fid, '9\n');
+            fprintf(fid, '$EXTMIN\n');
+            fprintf(fid, '10\n');
+            fprintf(fid, '%f\n',xmin(1));
+            fprintf(fid, '20\n');
+            fprintf(fid, '%f\n',xmin(2));
+            fprintf(fid, '30\n');
+            fprintf(fid, '%f\n',xmin(3));
+            fprintf(fid, '9\n');
+            fprintf(fid, '$EXTMAX\n');
+            fprintf(fid, '10\n');
+            fprintf(fid, '%f\n',xmax(1));
+            fprintf(fid, '20\n');
+            fprintf(fid, '%f\n',xmax(2));
+            fprintf(fid, '30\n');
+            fprintf(fid, '%f\n',xmax(3));
+            fprintf(fid, '0\n');
+            fprintf(fid, 'ENDSEC\n');
+            
+            % print the drawing table data
+            fprintf(fid, '0\n');
+            fprintf(fid, 'SECTION\n');
+            fprintf(fid, '2\n');
+            fprintf(fid, 'TABLES\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, 'TABLE\n');
+            fprintf(fid, '2\n');
+            fprintf(fid, 'LTYPE\n');
+            fprintf(fid, '70\n');
+            fprintf(fid, '1\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, 'LTYPE\n');
+            fprintf(fid, '2\n');
+            fprintf(fid, 'Continuous\n');
+            fprintf(fid, '70\n');
+            fprintf(fid, '64\n');
+            fprintf(fid, '3\n');
+            fprintf(fid, 'Solid line\n');
+            fprintf(fid, '72\n');
+            fprintf(fid, '65\n');
+            fprintf(fid, '73\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, '40\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, 'ENDTAB\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, 'TABLE\n');
+            fprintf(fid, '2\n');
+            fprintf(fid, 'LAYER\n');
+            fprintf(fid, '70\n');
+            fprintf(fid, '1000\n');
+            
+            % get the list of all available tubing sections
+            [ ~, sections ] = defineProperties();
+            Nsections = length(sections);
+            sectionNames = cell(Nsections,1);
+            for i = 1:Nsections
+                sectionNames{i} = sections{i}.name;
+            end
+            
+            % determine the number of drawing layers to export,
+            %   based on the assigned tubing section sizes
+            layers = false(Nsections,1);
+            for i = 1:length(STRUCTURE.frames)
+                layers = (layers|ismember(sectionNames,STRUCTURE.frames{i}.section.name));
+            end
+            layers = find(layers);
+            Nlayers = length(layers);
+            for i = 1:Nlayers
+                fprintf(fid, '0\n');
+                fprintf(fid, 'LAYER\n');
+                fprintf(fid, '2\n');
+                fprintf(fid, '%s\n',sectionNames{layers(i)});
+                %fprintf(fid, '%i\n',layers(i));
+                fprintf(fid, '70\n');
+                fprintf(fid, '64\n');
+                fprintf(fid, '62\n');
+                fprintf(fid, '%i\n',colorRemap(layers(i)));
+                fprintf(fid, '6\n');
+                fprintf(fid, 'Continuous\n');
+            end
+            fprintf(fid, '0\n');
+            fprintf(fid, 'ENDTAB\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, 'TABLE\n');
+            fprintf(fid, '2\n');
+            fprintf(fid, 'STYLE\n');
+            fprintf(fid, '70\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, 'ENDTAB\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, 'ENDSEC\n');
+            
+            % print block data
+            fprintf(fid, '0\n');
+            fprintf(fid, 'SECTION\n');
+            fprintf(fid, '2\n');
+            fprintf(fid, 'BLOCKS\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, 'ENDSEC\n');
+            
+            % print all drawing entities (lines)
+            fprintf(fid, '0\n');
+            fprintf(fid, 'SECTION\n');
+            fprintf(fid, '2\n');
+            fprintf(fid, 'ENTITIES\n');
+            for i = 1:length(STRUCTURE.frames)
+                fprintf(fid, '0\n');
+                fprintf(fid, 'LINE\n');
+                fprintf(fid, '8\n');
+                fprintf(fid, '%s\n',STRUCTURE.frames{i}.section.name);
+                %fprintf(fid, '%i\n',find(ismember(sectionNames,STRUCTURE.frames{i}.section.name)));
+                fprintf(fid, '10\n');
+                fprintf(fid, '%f\n',STRUCTURE.frames{i}.joints{1}.X(1));
+                fprintf(fid, '20\n');
+                fprintf(fid, '%f\n',STRUCTURE.frames{i}.joints{1}.X(2));
+                fprintf(fid, '30\n');
+                fprintf(fid, '%f\n',STRUCTURE.frames{i}.joints{1}.X(3));
+                fprintf(fid, '11\n');
+                fprintf(fid, '%f\n',STRUCTURE.frames{i}.joints{2}.X(1));
+                fprintf(fid, '21\n');
+                fprintf(fid, '%f\n',STRUCTURE.frames{i}.joints{2}.X(2));
+                fprintf(fid, '31\n');
+                fprintf(fid, '%f\n',STRUCTURE.frames{i}.joints{2}.X(3));
+            end
+            fprintf(fid, '0\n');
+            fprintf(fid, 'ENDSEC\n');
+            fprintf(fid, '0\n');
+            fprintf(fid, 'EOF');
+            
+            % close dxf file
+            fclose(fid);
+            
+        end % writeDXF
+        
+        % =============================================================== %
+        
+    end % (public) methods
+    
+    % STRUCTURE (private) object methods
+    methods (Access = private)
         
         % =============================================================== %
         
@@ -289,7 +876,7 @@ classdef Structure < handle
             [ loads, measurements ] = defineVerticalLoadCases();
             STRUCTURE.verticalCases = cell(size(loads,1),1);
             for i = 1:size(loads,1)
-                STRUCTURE.verticalCases{i} = LoadCase(size(nodes,1), size(loads,2), size(measurements,2), dofMap);
+                STRUCTURE.verticalCases{i} = LoadCase(size(nodes,1), size(loads,3), size(measurements,2), dofMap);
                 STRUCTURE.verticalCases{i}.assignVerticalLoads(loads(i,:,:), nodes, decking)
                 STRUCTURE.verticalCases{i}.assignVerticalMeasurements(measurements(i,:), nodes, decking)
             end
@@ -306,160 +893,7 @@ classdef Structure < handle
         end % defineLoadCases
         
         % =============================================================== %
-                
-        % Analyze STRUCTURE
-        function [ score, sway, swayID, factor, mode, bucklingID ] = analyze(STRUCTURE)
-            % run analysis of the structure
             
-            % compute structural efficiency score
-            [ score ] = STRUCTURE.computeEfficiency();
-            
-            % compute lateral deflection
-            [ sway, swayID ] = STRUCTURE.computeLateralSway();
-
-            % determine the elastic buckling load factor and mode shape
-            [ factor, mode, bucklingID ] = STRUCTURE.computeBucklingLoad();
-        end
-        
-        % =============================================================== %
-        
-        % Compute STRUCTURE efficiency score
-        function [ score, weight, deflections ] = computeEfficiency(STRUCTURE)
-            % compute the overall efficiency score of the structure ($)
-
-            % compute the structure's overall weight
-            weight = STRUCTURE.computeWeight();
-            
-            % compute structure compliance, if necessary
-            STRUCTURE.computeCompliance();
-            
-            % loop through all vertical load cases
-            deflections = zeros(length(STRUCTURE.verticalCases),1);
-            for i = 1:length(STRUCTURE.verticalCases)
-                deflections(i) = STRUCTURE.verticalCases{i}.computeDeflection(STRUCTURE.C);
-            end
-            
-            % compute efficiency score
-            [ score ] = computeEfficiency(weight, mean(deflections));
-        end % computeEfficiency
-        
-        % =============================================================== %
-                        
-        % Compute STRUCTURE lateral sway
-        function [ sway, caseID ] = computeLateralSway(STRUCTURE)
-            % compute the worst-case lateral sway of the structure (in)
-            
-            % compute structure compliance, if necessary
-            STRUCTURE.computeCompliance();
-            
-            % loop through all lateral load cases
-            deflection = zeros(length(STRUCTURE.lateralCases),1);
-            for i = 1:length(STRUCTURE.lateralCases)
-                deflection(i) = STRUCTURE.lateralCases{i}.computeDeflection(STRUCTURE.C);
-            end
-            
-            % determine the worst-case lateral deflection
-            [ sway, caseID ] = max(deflection);
-        end % computeLateralSway
-        
-        % =============================================================== %
-                
-        % Compute STRUCTURE buckling load
-        function [ factor, mode, caseID ] = computeBucklingLoad(STRUCTURE)
-            % compute the critical buckling load factor for the structure
-            
-            % compute structure compliance, if necessary
-            STRUCTURE.computeCompliance();
-            
-            % loop through all vertical load cases
-            factors = zeros(length(STRUCTURE.verticalCases),1);
-            modes = cell(length(STRUCTURE.verticalCases),1);
-            for i = 1:length(STRUCTURE.verticalCases)
-                U = STRUCTURE.verticalCases{i}.computeJointDisplacements(STRUCTURE.C);
-                G = STRUCTURE.computeGeometricStiffness(U);
-                % solve the generalized eigenvalue problem for the critical load factors
-                [ eigenvectors, D ] = eigs(STRUCTURE.K, -G, 5, 'SM');
-                eigenvalues = diag(D);
-                modes{i} = zeros(size(U));
-                if any(eigenvalues > 0)
-                    pos = find(eigenvalues > 0);
-                    [factors(i), loc] = min(eigenvalues(pos));
-                    loc = pos(loc);
-                    modes{i}(STRUCTURE.verticalCases{i}.dofMap) = eigenvectors(:,loc);
-                else
-                    [factors(i), loc] = max(eigenvalues);
-                    modes{i}(STRUCTURE.verticalCases{i}.dofMap) = eigenvectors(:,loc);
-                end
-            end
-            
-            % compute minimum buckling load factor
-            if any(factors > 0)
-                pos = find(factors > 0);
-                [ factor, caseID ] = min(factors(pos));
-                caseID = pos(caseID);
-                mode = modes{caseID};
-            else
-                [ factor, caseID ] = max(factors);
-                mode = modes{caseID};
-            end
-        end % computeBucklingLoad
-        
-        % =============================================================== %
-        
-        % Compute STRUCTURE member capacities
-        function computeMemberCapacities(STRUCTURE)
-            % compute the worst-case capacities of all members
-            
-            % compute structure compliance, if necessary
-            STRUCTURE.computeCompliance();
-            
-            % loop through all vertical load cases
-            for i = 1:length(STRUCTURE.verticalCases)
-                U = STRUCTURE.verticalCases{i}.computeJointDisplacements(STRUCTURE.C);
-                for j = 1:length(STRUCTURE.frames)
-                    for k = 1:length(STRUCTURE.frames{j}.elements)
-                        u = U(STRUCTURE.frames{j}.elements{k}.dofMap);
-                        STRUCTURE.frames{j}.elements{k}.computeCapacity(u);
-                    end
-                end
-            end
-            
-            % plot member capacities
-            STRUCTURE.plotCapacities();
-        end % computeMemberCapacities
-        
-        % =============================================================== %
-                
-        % Compute STRUCTURE reaction forces
-        function computeReactions(STRUCTURE)
-            % compute structure compliance, if necessary
-            STRUCTURE.computeCompliance();
-            
-            % loop through all vertical load cases
-            for i = 1:length(STRUCTURE.verticalCases)
-                U = STRUCTURE.verticalCases{i}.computeJointDisplacements(STRUCTURE.C);
-                r = STRUCTURE.R * U(STRUCTURE.verticalCases{i}.dofMap);
-            end
-            STRUCTURE.plotLoaded(STRUCTURE.verticalCases{1}.loads(:,end))
-        end % computeReactions
-        
-        % =============================================================== %
-        
-        % Compute STRUCTURE weight
-        function [ weight ] = computeWeight(STRUCTURE)
-            % compute the overall weight of the structure (lbs)
-
-            % loop over all elements in the structure
-            weight = 0.0;
-            for i = 1:length(STRUCTURE.frames)
-                for j = 1:length(STRUCTURE.frames{i}.elements)
-                    weight = weight + STRUCTURE.frames{i}.elements{j}.computeWeight();
-                end
-            end
-        end % computeWeight
-        
-        % =============================================================== %
-        
         % Compute STRUCTURE compliance matrix (inverse stiffness)
         function computeCompliance(STRUCTURE)
             %  compute the compliance matrix for the entire structure
@@ -477,7 +911,7 @@ classdef Structure < handle
 
                 % loop through all elements, and assemble contributions
                 for i = 1:length(STRUCTURE.frames)
-                    for j = 1:length(STRUCTURE.frames{i}.elements)
+                    for j = 1:STRUCTURE.frames{i}.Nelements
                         ids = STRUCTURE.frames{i}.elements{j}.free;
                         map = STRUCTURE.frames{i}.elements{j}.freeDofs;
                         sup = STRUCTURE.frames{i}.elements{j}.fixedDofs;
@@ -508,7 +942,7 @@ classdef Structure < handle
             
             % loop through all elements, and assemble contributions
             for i = 1:length(STRUCTURE.frames)
-                for j = 1:length(STRUCTURE.frames{i}.elements)
+                for j = 1:STRUCTURE.frames{i}.Nelements
                     ids = STRUCTURE.frames{i}.elements{j}.free;
                     map = STRUCTURE.frames{i}.elements{j}.freeDofs;
                     u = U(STRUCTURE.frames{i}.elements{j}.dofMap);
@@ -519,251 +953,7 @@ classdef Structure < handle
                 end
             end
         end % computeGeometricStiffness
-        
-        % =============================================================== %
-                
-        % Optimize member sections in the STRUCTURE
-        function optimizeMemberSectionsImplicit(STRUCTURE, Niterations)
-            % get the list of all available tubing sections
-            [ ~, sections ] = defineProperties();
-            Nsections = length(sections);
-            
-            % get number of members and load cases
-            Nmem = length(STRUCTURE.frames);
-            Ncases = length(STRUCTURE.verticalCases);
-            
-            % perform a fixed number of iterations
-            for iter = 1:Niterations
-                % print current iteration number
-                fprintf('iteration: %5i\n',iter)
-
-                % compute structure compliance
-                STRUCTURE.computeCompliance();
-
-                % assemble the global section tangent matrix and residual
-                S = sparse(Nmem,Nmem);
-                R = zeros(Nmem,1);
-                for i = 1:Ncases
-                    % compute structure section stiffness
-                    [Si, Ri] = STRUCTURE.computeSectionStiffness(STRUCTURE.verticalCases{i});
-                    S = S + (3.0e6 / Ncases) * Si;
-                    R = R + (3.0e6 / Ncases) * Ri;
-                end
-                [ Hw, Rw, Jw ] = STRUCTURE.computeWeightResidual();
-                R = R + Rw;
-
-                % get the current vector of cross-sectional areas
-                A = zeros(Nmem,1);
-                for i = 1:Nmem
-                    A(i) = STRUCTURE.frames{i}.section.A;
-                end
-
-                % compute the updated cross-sectional areas
-                %dA = S \ R;
-                % use Jacobi iteration to ensure stability
-                dA = R ./ abs(diag(S));
-                %if (Jw > 0)
-                    % solve the constrained optimization problem
-                    %lambda = (Hw' * Hw) \ (Hw' * dA - Jw);
-                    %dA = dA - (Hw ./ abs(diag(S))) * lambda;
-                %end
-                A = A - dA;
-
-                % set new sections based on the updated cross-sectional areas
-                for i = 1:Nmem
-                    id = 1;
-                    dif = abs(sections{1}.A - A(i));
-                    for j = 2:Nsections
-                        if (abs(sections{j}.A - A(i)) < dif)
-                            id = j;
-                            dif = abs(sections{j}.A - A(i));
-                        end
-                    end
-                    STRUCTURE.frames{i}.section = sections{id};
-                    for j = 1:length(STRUCTURE.frames{i}.elements)
-                        STRUCTURE.frames{i}.elements{j}.section = sections{id};
-                    end
-                end
-                
-                % reset the needStiffness flag to true
-                STRUCTURE.needStiffness = true;
-            end
-        end % optimizeMemberSectionsImplicit
-        
-        % =============================================================== %
-        
-        % Optimize member sections in the STRUCTURE
-        function optimizeMemberSectionsExplicit(STRUCTURE, Niterations, FS)
-            % get the list of all available tubing sections
-            [ ~, sections ] = defineProperties();
-            Nsections = length(sections);
-            
-            % get number of members and load cases
-            Nmem = length(STRUCTURE.frames);
-            Ncases = length(STRUCTURE.verticalCases);
-            
-            % get vector of section properties
-            props = zeros(Nsections,4);
-            caps  = zeros(Nsections,4);
-            for i = 1:Nsections
-                props(i,:) = [ 1.0/sections{i}.I, ...
-                               1.0/sections{i}.J, ...
-                               1.0/sections{i}.A, ...
-                                   sections{i}.A ];
-                caps(i,:) = [ 1.0/sections{i}.A, ...
-                              sections{i}.c/sections{i}.I, ...
-                              sections{i}.c/sections{i}.I, ...
-                              1.0/sections{i}.I ];
-            end
-            
-            [ score, weight, deflections ] = STRUCTURE.computeEfficiency();
-            fprintf('measured weight of structure = %6.2f lbs\n', weight)
-            fprintf('average aggregate deflection = %7.4f in\n', mean(deflections))
-            import java.text.*; fmt = DecimalFormat; % (for printing comma-separated #'s)
-            fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(score))))
-            
-            % perform a fixed number of iterations
-            for iter = 1:Niterations
-                % print current iteration number
-                fprintf('iteration: %5i\n',iter)
-
-                % compute structure compliance
-                STRUCTURE.computeCompliance();
-
-                % optimize members individually
-                dS = zeros(Nmem,4);
-                Smin = zeros(Nmem,4);
-                for i = 1:Ncases
-                    % compute structure section derivatives
-                    [dSi, Smini] = STRUCTURE.computeSectionDerivatives(STRUCTURE.verticalCases{i});
-                    dS = dS + dSi / Ncases;
-                    Smin = max(Smin, Smini);
-                end
-                dS(:,1:3) = 3.0e6 * abs(dS(:,1:3));
-                dS(:,4)   = 5.0e3 * dS(:,4);
-                Smin = Smin * FS;
-
-                % set new sections based on the updated derivatives
-                for i = 1:Nmem
-                    % choose the section that induces the least overall
-                    %   cost, which does not fail under the loading
-                    id = 0;
-                    for j = 1:Nsections
-                        if (sum(Smin(i,1:2).*caps(j,1:2)) < 1.0)&&(Smin(i,3)*caps(j,3) < 1.0)
-                            if (Smin(i,4) == 0)||(Smin(i,4)*caps(j,4) < 1.0)
-                                if (id == 0)
-                                    id = j;
-                                    cost = sum(dS(i,:) .* props(j,:));
-                                elseif (sum(dS(i,:) .* props(j,:)) < cost)
-                                    id = j;
-                                    cost = sum(dS(i,:) .* props(j,:));
-                                end
-                            end
-                        end
-                    end
-                    % if the member fails, regardless: don't change it
-                    if (id ~= 0)
-                        STRUCTURE.frames{i}.section = sections{id};
-                        for j = 1:length(STRUCTURE.frames{i}.elements)
-                            STRUCTURE.frames{i}.elements{j}.section = sections{id};
-                        end
-                    end
-                end
-                
-                % reset the needStiffness flag to true
-                STRUCTURE.needStiffness = true;
-                
-                [ score, weight, deflections ] = STRUCTURE.computeEfficiency();
-                fprintf('measured weight of structure = %6.2f lbs\n', weight)
-                fprintf('average aggregate deflection = %7.4f in\n', mean(deflections))
-                import java.text.*; fmt = DecimalFormat; % (for printing comma-separated #'s)
-                fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(score))))
-            end
-        end % optimizeMemberSectionsExplicit
-        
-        % =============================================================== %
-                
-        % Compute STRUCTURE section stiffness matrix and residual
-        function [S, R] = computeSectionStiffness(STRUCTURE, loadCase)
-            % assemble the section tangent stiffness and residual
-            % for the entire STRUCTURE
-            
-            % count up all degrees of freedom
-            Ndof = 0;
-            for a = 1:length(STRUCTURE.joints)
-                Ndof = Ndof + sum(STRUCTURE.joints{a}.dofs > 0);
-            end
-            
-            % initialize the section tangent matricies and residual vector
-            Nmem = length(STRUCTURE.frames);
-            SU = sparse(Ndof,Nmem);
-            SW = sparse(Ndof,Nmem);
-            R = zeros(Nmem,1);
-
-            % compute the joint displacement and inverse measurement vectors
-            U = loadCase.computeJointDisplacements(STRUCTURE.C);
-            W = loadCase.computeVirtualForces(STRUCTURE.C);
-            
-            % loop through all elements, and assemble contributions
-            for i = 1:length(STRUCTURE.frames)
-                for j = 1:length(STRUCTURE.frames{i}.elements)
-                    ids = STRUCTURE.frames{i}.elements{j}.free;
-                    map = STRUCTURE.frames{i}.elements{j}.freeDofs;
-                    u = U(STRUCTURE.frames{i}.elements{j}.dofMap);
-                    w = W(STRUCTURE.frames{i}.elements{j}.dofMap);
-                    [sw, su, r] = STRUCTURE.frames{i}.elements{j}.computeSectionStiffness(u, w);
-                    if ~isempty(map)
-                        SU(map,i) = SU(map,i) + su(ids);
-                        SW(map,i) = SW(map,i) + sw(ids);
-                        R(i) = R(i) + r;
-                    end
-                end
-            end
-            
-            % form the section stiffness matrix
-            S = SU'*(STRUCTURE.C\(STRUCTURE.C'\SW));
-            S = S + S';
-            
-        end % computeSectionStiffness
-        
-        % =============================================================== %
-        
-        % Compute STRUCTURE section stiffness matrix and residual
-        function [S, R] = computeSectionResidual(STRUCTURE, loadCase)
-            % assemble the section residual for the entire STRUCTURE
-            
-            % count up all degrees of freedom
-            Ndof = 0;
-            for a = 1:length(STRUCTURE.joints)
-                Ndof = Ndof + sum(STRUCTURE.joints{a}.dofs > 0);
-            end
-            
-            % initialize the section residual vector
-            Nmem = length(STRUCTURE.frames);
-            R = zeros(Nmem,1);
-            S = zeros(Nmem,1);
-
-            % compute the joint displacement and inverse measurement vectors
-            U = loadCase.computeJointDisplacements(STRUCTURE.C);
-            W = loadCase.computeVirtualForces(STRUCTURE.C);
-            
-            % loop through all elements, and assemble contributions
-            for i = 1:length(STRUCTURE.frames)
-                for j = 1:length(STRUCTURE.frames{i}.elements)
-                    ids = STRUCTURE.frames{i}.elements{j}.free;
-                    map = STRUCTURE.frames{i}.elements{j}.freeDofs;
-                    u = U(STRUCTURE.frames{i}.elements{j}.dofMap);
-                    w = W(STRUCTURE.frames{i}.elements{j}.dofMap);
-                    [s, r] = STRUCTURE.frames{i}.elements{j}.computeSectionResidual(u, w);
-                    if ~isempty(map)
-                        S(i) = S(i) + s;
-                        R(i) = R(i) + r;
-                    end
-                end
-            end
-            
-        end % computeSectionResidual
-        
+               
         % =============================================================== %
         
         % Compute STRUCTURE section cost derivatives
@@ -789,160 +979,35 @@ classdef Structure < handle
             dS = zeros(Nmem,4);
             Smin = zeros(Nmem,4);
 
-            % compute the joint displacement and inverse measurement vectors
-            U = loadCase.computeJointDisplacements(STRUCTURE.C);
-            W = loadCase.computeVirtualForces(STRUCTURE.C);
-            
-            % loop through all elements, and assemble contributions
-            for i = 1:length(STRUCTURE.frames)
-                for j = 1:length(STRUCTURE.frames{i}.elements)
-                    ids = STRUCTURE.frames{i}.elements{j}.free;
-                    map = STRUCTURE.frames{i}.elements{j}.freeDofs;
-                    u = U(STRUCTURE.frames{i}.elements{j}.dofMap);
-                    w = W(STRUCTURE.frames{i}.elements{j}.dofMap);
-                    [ds, smin] = STRUCTURE.frames{i}.elements{j}.computeSectionDerivatives(u, w);
-                    if ~isempty(map)
+            for jstep = 1:size(loadCase.loads,2)
+                % compute the joint displacement and inverse measurement vectors
+                U = loadCase.computeJointDisplacements(jstep, STRUCTURE.C);
+                V = loadCase.computeVirtualDisplacements(jstep, STRUCTURE.C);
+
+                % loop through all elements, and assemble stiffness contributions
+                for i = 1:length(STRUCTURE.frames)
+                    for j = 1:STRUCTURE.frames{i}.Nelements
+                        dofMap = STRUCTURE.frames{i}.elements{j}.dofMap;
+                        [ds, smin] = STRUCTURE.frames{i}.elements{j}.computeStiffnessDerivatives(U(dofMap), V(dofMap));
                         dS(i,:) = dS(i,:) + ds;
                         Smin(i,:) = max(Smin(i,:), smin);
                     end
                 end
             end
             
+            % loop through all elements, and assemble weight contributions
+            for i = 1:length(STRUCTURE.frames)
+                for j = 1:STRUCTURE.frames{i}.Nelements
+                    [ds] = STRUCTURE.frames{i}.elements{j}.computeWeightDerivatives();
+                    dS(i,:) = dS(i,:) + ds;
+                end
+            end
+            
         end % computeSectionDerivatives
-        
-        % =============================================================== %
-        
-        % Compute STRUCTURE weight residual contribution
-        function [H, R, J] = computeWeightResidual(STRUCTURE)
-            % assemble the section weight residual for the entire STRUCTURE
-            
-            % initialize the weight residual vector
-            Nmem = length(STRUCTURE.frames);
-            H = zeros(Nmem,1);
-            
-            % loop over all elements in the structure
-            weight = 0.0;
-            for i = 1:length(STRUCTURE.frames)
-                for j = 1:length(STRUCTURE.frames{i}.elements)
-                    weight = weight + STRUCTURE.frames{i}.elements{j}.computeWeight();
-                    H(i) = H(i) - STRUCTURE.frames{i}.elements{j}.computeWeightResidual();
-                end
-            end
-            J = 120 - weight;
-
-            % apply the correct scoring factor
-            if (weight < 120)
-                R = - 0.0 * H;
-            elseif (weight < 200)
-                R = - 5000.0 * H;
-            else
-                R = - 25000.0 * H;
-            end
-            
-        end % computeWeightResidual
-        
-        % =============================================================== %   
                 
-        % Plot undeformed STRUCTURE
-        function plotUndeformed(STRUCTURE)
-            % plot the undeformed structure
-            U = zeros(6*length(STRUCTURE.joints),1);
-            STRUCTURE.plotDeformed(U)
-        end % plotUndeformed
-        
         % =============================================================== %
         
-        % Plot deformed STRUCTURE
-        function plotDeformed(STRUCTURE, U)
-            % plot the deformed structure
-            figure(1)
-            hold on
-            % plot all elements
-            for i = 1:length(STRUCTURE.frames)
-                for j = 1:length(STRUCTURE.frames{i}.elements)
-                    u = U(STRUCTURE.frames{i}.elements{j}.dofMap);
-                    STRUCTURE.frames{i}.elements{j}.plotDeformed(u);
-                end
-            end
-            % plot all supports
-            for a = 1:length(STRUCTURE.joints)
-                if (sum(STRUCTURE.joints{a}.dofs < 0) == 3)
-                    plot3(STRUCTURE.joints{a}.X(1), ...
-                          STRUCTURE.joints{a}.X(2), ...
-                          STRUCTURE.joints{a}.X(3), ...
-                          '^g')
-                end
-            end
-            axis equal
-        end % plotDeformed
-        
-        % =============================================================== %
-        
-        % Plot deformed STRUCTURE
-        function plotLoaded(STRUCTURE, F)
-            % plot the loaded structure
-            figure(2)
-            hold on
-            % plot all elements
-            for i = 1:length(STRUCTURE.frames)
-                for j = 1:length(STRUCTURE.frames{i}.elements)
-                    u = zeros(12,1);
-                    STRUCTURE.frames{i}.elements{j}.plotDeformed(u);
-                end
-            end
-            % plot all loads
-            for a = 1:length(STRUCTURE.joints)
-                quiver3(STRUCTURE.joints{a}.X(1), ...
-                        STRUCTURE.joints{a}.X(2), ...
-                        STRUCTURE.joints{a}.X(3), ...
-                        F(1+6*(a-1)),F(2+6*(a-1)),F(3+6*(a-1)), ...
-                        100,'g')
-                quiver3(STRUCTURE.joints{a}.X(1), ...
-                        STRUCTURE.joints{a}.X(2), ...
-                        STRUCTURE.joints{a}.X(3), ...
-                        F(4+6*(a-1)),F(5+6*(a-1)),F(6+6*(a-1)), ...
-                        100,'r')
-            end
-            % plot all supports
-            for a = 1:length(STRUCTURE.joints)
-                if (sum(STRUCTURE.joints{a}.dofs < 0) == 3)
-                    plot3(STRUCTURE.joints{a}.X(1), ...
-                          STRUCTURE.joints{a}.X(2), ...
-                          STRUCTURE.joints{a}.X(3), ...
-                          '^g')
-                end
-            end
-            axis equal
-        end % plotLoaded
-        
-        % =============================================================== %
-                
-        % Plot capacities of all members in the STRUCTURE
-        function plotCapacities(STRUCTURE)
-            % plot member capacities
-            figure(3)
-            hold on
-            % plot all elements
-            for i = 1:length(STRUCTURE.frames)
-                for j = 1:length(STRUCTURE.frames{i}.elements)
-                    STRUCTURE.frames{i}.elements{j}.plotCapacity();
-                end
-            end
-            % plot all supports
-            for a = 1:length(STRUCTURE.joints)
-                if (sum(STRUCTURE.joints{a}.dofs < 0) == 3)
-                    plot3(STRUCTURE.joints{a}.X(1), ...
-                          STRUCTURE.joints{a}.X(2), ...
-                          STRUCTURE.joints{a}.X(3), ...
-                          '^g')
-                end
-            end
-            axis equal
-        end % plotCapacities
-        
-        % =============================================================== %
-        
-    end % methods
+    end % (private) methods
     
 end
 
