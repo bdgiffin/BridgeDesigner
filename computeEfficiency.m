@@ -2,11 +2,12 @@ function [ scores ] = computeEfficiency( weight, deflections )
 % COMPUTE EFFICIENCY:
 %  calculate the overall efficiency scores from the
 %  specified weight and aggregate deflections
+%  (Consistent with the NSSBC 2019 rules)
 
 % specify cost multipliers
 C_w0 =    5000; % ($/lb)
 C_w1 =   25000; % ($/lb)
-C_d  = 3000000; % ($/in)
+C_d  = 3250000; % ($/in)
 
 % calculate overall score
 if (weight < 120)

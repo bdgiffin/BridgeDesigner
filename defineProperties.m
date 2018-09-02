@@ -1,5 +1,6 @@
 function [ steel, tubings ] = defineProperties()
 % Define all material and tubing section properties
+% (Updated based on Wicks Aircraft and Motorsports catalog on 9/1/2018)
 
 % define the only material: 4130 steel
 %                   rho      E      nu    Fy
@@ -8,8 +9,8 @@ steel = Material(  0.284,  29000,  0.3,  63.1 );
 
 tubings = cell(153,1);
 % define all circular tubing section sizes
-%                        name         type    O.D.     t
-%                                             (in)    (in)
+%                            name          type    O.D.    t
+%                                                  (in)   (in)
 tubings{1}   = Section('R-0D1875X0D035' , 'PIPE' ,0.1875,0.035);
 tubings{2}   = Section('R-0D2500X0D028' , 'PIPE' ,0.2500,0.028);
 tubings{3}   = Section('R-0D2500X0D035' , 'PIPE' ,0.2500,0.035);
@@ -145,8 +146,8 @@ tubings{132} = Section('R-2D5000X0D120' , 'PIPE' ,2.5000,0.120);
 tubings{133} = Section('R-2D5000X0D250' , 'PIPE' ,2.5000,0.250);
 
 % define all square tubing section sizes
-%                        name            type     w      t
-%                                               (in)    (in)
+%                            name          type      w     t
+%                                                  (in)  (in)
 tubings{134} = Section('S-0D3750X0D035' , 'TUBE' ,0.3750,0.035);
 tubings{135} = Section('S-0D5000X0D035' , 'TUBE' ,0.5000,0.035);
 tubings{136} = Section('S-0D5000X0D049' , 'TUBE' ,0.5000,0.049);
@@ -156,16 +157,15 @@ tubings{139} = Section('S-0D6250X0D049' , 'TUBE' ,0.6250,0.049);
 tubings{140} = Section('S-0D6250X0D065' , 'TUBE' ,0.6250,0.065);
 tubings{141} = Section('S-0D7500X0D035' , 'TUBE' ,0.7500,0.035);
 tubings{142} = Section('S-0D7500X0D049' , 'TUBE' ,0.7500,0.049);
-tubings{143} = Section('S-0D7500X0D058' , 'TUBE' ,0.7500,0.058);
-tubings{144} = Section('S-0D7500X0D065' , 'TUBE' ,0.7500,0.065);
-tubings{145} = Section('S-0D8750X0D035' , 'TUBE' ,0.8750,0.035);
-tubings{146} = Section('S-0D8750X0D049' , 'TUBE' ,0.8750,0.049);
-tubings{147} = Section('S-0D8750X0D065' , 'TUBE' ,0.8750,0.065);
-tubings{148} = Section('S-1D0000X0D035' , 'TUBE' ,1.0000,0.035);
-tubings{149} = Section('S-1D0000X0D049' , 'TUBE' ,1.0000,0.049);
-tubings{150} = Section('S-1D0000X0D058' , 'TUBE' ,1.0000,0.058);
-tubings{151} = Section('S-1D0000X0D065' , 'TUBE' ,1.0000,0.065);
-tubings{152} = Section('S-1D1250X0D049' , 'TUBE' ,1.1250,0.049);
-tubings{153} = Section('S-1D1250X0D058' , 'TUBE' ,1.1250,0.058);
+tubings{143} = Section('S-0D7500X0D065' , 'TUBE' ,0.7500,0.065);
+tubings{144} = Section('S-0D8750X0D035' , 'TUBE' ,0.8750,0.035);
+tubings{145} = Section('S-0D8750X0D049' , 'TUBE' ,0.8750,0.049);
+tubings{146} = Section('S-0D8750X0D065' , 'TUBE' ,0.8750,0.065);
+tubings{147} = Section('S-1D0000X0D035' , 'TUBE' ,1.0000,0.035);
+tubings{148} = Section('S-1D0000X0D049' , 'TUBE' ,1.0000,0.049);
+tubings{149} = Section('S-1D0000X0D058' , 'TUBE' ,1.0000,0.058);
+tubings{150} = Section('S-1D0000X0D065' , 'TUBE' ,1.0000,0.065);
+tubings{151} = Section('S-1D1250X0D049' , 'TUBE' ,1.1250,0.049);
+tubings{152} = Section('S-1D2500X0D058' , 'TUBE' ,1.2500,0.058);
 
 end
