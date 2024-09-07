@@ -7,7 +7,11 @@ classdef LoadCase < handle
         measurements
         intervals
         dofMap
-    end % properties
+    end % private properties
+
+    properties (SetAccess = public)
+        probability
+    end % public properties
     
     % LOADCASE object methods
     methods
@@ -15,11 +19,12 @@ classdef LoadCase < handle
         % =============================================================== %
         
         % LOADCASE object constructor
-        function LOADCASE = LoadCase(Nnodes, Nsteps, Nmeasurements, dofMap)
+        function LOADCASE = LoadCase(Nnodes, Nsteps, Nmeasurements, dofMap, probability)
             LOADCASE.loads = zeros(6*Nnodes, Nsteps);
             LOADCASE.measurements = zeros(6*Nnodes, Nmeasurements);
             LOADCASE.intervals = zeros(Nmeasurements, Nsteps);
             LOADCASE.dofMap = dofMap;
+            LOADCASE.probability = probability;
         end % LoadCase
         
         % =============================================================== %

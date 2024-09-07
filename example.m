@@ -4,7 +4,7 @@
 %   BridgeDesigner is a Matlab library of structural design tools,        %
 %   which can be used to write scripts for the purposes of automating     %
 %   various design tasks. BridgeDesigner was originally written for the   %
-%   2018 NSSBC rules, but may be extended for use in other settings.      %
+%   2018 NSSBC rules, and has been updated for the 2025 NSSBC rules.      %
 % ======================================================================= %
 clear all
 clc
@@ -46,9 +46,9 @@ axes = [ '+x';   % span-direction
 %            layer         section
 active = { 'Decking',  'S-1D0000X0D035';
            'Webbing',  'R-0D1875X0D035';
-           'Laterals', 'R-0D5000X0D028';
+           'Laterals', 'R-0D5000X0D035';
            'Chords',   'R-1D2500X0D035';
-           'Tendons',  'R-0D5000X0D028';
+           'Tendons',  'R-0D5000X0D035';
            'Legs',     'R-1D0000X0D028' };
        
 % Specify the set of all layers that comprise the "decking" support surface
@@ -60,18 +60,23 @@ decking = {'Decking'};
 %   the "dxf" file, coordinate "axes", and "active" layers,
 %   defined previously.
 fprintf('creating model...\n')
-bridge = Structure(dxf, axes, active, decking);
+bridge = Structure(dxf, axes, active, decking, ...
+                   @defineProperties, ...
+                   @computeEfficiency2025, ...
+                   @defineVerticalLoadCases2025, ...
+                   @defineLateralLoadCases2025);
 
 % Compute the (average) efficiency score for the newly created structure
 %   by invoking the "computeEfficiency" method defined on the
 %   "Structure" class object.
 fprintf('calculating score...\n')
 [ scores, weight, deflections ] = bridge.computeEfficiency();
+average_score = bridge.computeAverageEfficiency();
 % (Optionally) print the results to the Matlab command window
 fprintf('measured weight of structure = %6.2f lbs\n', weight)
-fprintf('average aggregate deflection = %7.4f in\n', mean(deflections))
+fprintf('maximum aggregate deflection = %7.4f in\n', max(deflections))
 import java.text.*; fmt = DecimalFormat; % (for printing comma-separated #'s)
-fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(mean(scores)))))
+fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(average_score))))
 
 % Compute the worst-case lateral sway using the
 %   "computeLateralSway" method

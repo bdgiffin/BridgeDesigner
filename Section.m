@@ -57,6 +57,14 @@ classdef Section < handle
             SECTION.J = section.J;
             SECTION.c = section.c;
         end
+        
+        % SECTION get properties method
+        function [I,J,A,c] = getProperties(SECTION)
+            I = SECTION.I;
+            J = SECTION.J;
+            A = SECTION.A;
+            c = SECTION.c;
+        end
     end
     
 end

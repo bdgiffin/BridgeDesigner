@@ -1,7 +1,10 @@
-function [ loads, measurements ] = defineLateralLoadCases()
+function [ loads, measurements, probabilities ] = defineLateralLoadCases2019()
 % DEFINE_LATERAL_LOAD_CASES:
 %  define all lateral load cases for the model
 %  (Consistent with the NSSBC 2019 rules)
+
+% specify the "probabilities" of occurance for each load case
+probabilities = [ 1/6, 1/6, 1/6, 1/6, 1/6, 1/6 ]; % S1-6
 
 % define the load "pattern" matrix
 Ncases = 6; % S1-6 (lateral)

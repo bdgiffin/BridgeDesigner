@@ -7,6 +7,10 @@ classdef Structure < handle
         frames
         verticalCases
         lateralCases
+
+        % user-defined functions
+        computeEfficiencyCost
+        defineProperties
         
         % stiffness matrix parameters
         needStiffness
@@ -21,7 +25,11 @@ classdef Structure < handle
         % =============================================================== %
         
         % STRUCTURE object constructor
-        function STRUCTURE = Structure(dxf, axes, active, decking)
+        function STRUCTURE = Structure(dxf, axes, active, decking, ...
+                                       defineProperties, ...
+                                       computeEfficiencyCost, ...
+                                       defineVerticalLoadCases, ...
+                                       defineLateralLoadCases)
             % read the input .dxf drawing file
             [ nodes, frames, groups, layers ] = STRUCTURE.readDXF(dxf);
             
@@ -54,7 +62,8 @@ classdef Structure < handle
             end
             
             % define all frame objects in the STRUCTURE
-            [ material, sections ] = defineProperties();
+            STRUCTURE.defineProperties = defineProperties;
+            [ material, sections ] = STRUCTURE.defineProperties();
             STRUCTURE.frames = cell(size(frames,1),1);
             for i = 1:size(frames,1)
                 frameElements = elements(frameIDs == i,:);
@@ -72,7 +81,10 @@ classdef Structure < handle
             deckingElements = elements(ismember(groups(frameIDs),find(ismember(layers,decking))),:);
 
             % define all vertical and lateral load cases
-            STRUCTURE.defineLoadCases(nodes, deckingElements);
+            STRUCTURE.defineLoadCases(nodes, deckingElements, defineVerticalLoadCases, defineLateralLoadCases);
+
+            % define the efficiency cost function
+            STRUCTURE.computeEfficiencyCost = computeEfficiencyCost;
     
             % initialize compliance parameter
             STRUCTURE.needStiffness = true;
@@ -84,8 +96,8 @@ classdef Structure < handle
         function [ score, sway, swayID, factor, mode, bucklingID ] = analyze(STRUCTURE)
             % run analysis of the structure
             
-            % compute structural efficiency score
-            [ score ] = STRUCTURE.computeEfficiency();
+            % compute average structural efficiency score
+            [ score ] = STRUCTURE.computeAverageEfficiency();
             
             % compute lateral deflection
             [ sway, swayID ] = STRUCTURE.computeLateralSway();
@@ -96,8 +108,26 @@ classdef Structure < handle
         
         % =============================================================== %
         
+        % Compute STRUCTURE average efficiency score
+        function [ average_score ] = computeAverageEfficiency(STRUCTURE)
+            % compute the average overall efficiency score of the structure ($)
+
+            % compute the structure's efficiency scores from all load cases
+            [ scores ] = STRUCTURE.computeEfficiency();
+            
+            % loop through all load cases and weight the average by the
+            % estimated probability of occurance for each load case
+            average_score = 0.0;
+            for i = 1:length(STRUCTURE.verticalCases)
+                average_score = average_score + STRUCTURE.verticalCases{i}.probability*scores(i);
+            end
+
+        end % computeAverageEfficiency
+        
+        % =============================================================== %
+        
         % Compute STRUCTURE efficiency score
-        function [ scores, weight, deflections ] = computeEfficiency(STRUCTURE)
+        function [ scores, weight, deflections, sways ] = computeEfficiency(STRUCTURE)
             % compute the overall efficiency score of the structure ($)
 
             % compute the structure's overall weight
@@ -112,8 +142,14 @@ classdef Structure < handle
                 deflections(i) = STRUCTURE.verticalCases{i}.computeDeflection(STRUCTURE.C);
             end
             
-            % compute efficiency score
-            [ scores ] = computeEfficiency(weight, deflections);
+            % loop through all lateral load cases
+            sways = zeros(length(STRUCTURE.lateralCases),1);
+            for i = 1:length(STRUCTURE.lateralCases)
+                sways(i) = STRUCTURE.lateralCases{i}.computeDeflection(STRUCTURE.C);
+            end
+            
+            % compute efficiency scores for all cases
+            [ scores ] = STRUCTURE.computeEfficiencyCost(weight, deflections, sways);
         end % computeEfficiency
         
         % =============================================================== %
@@ -248,9 +284,10 @@ classdef Structure < handle
         
         % Optimize member sections in the STRUCTURE
         function optimizeMemberSections(STRUCTURE, Niterations, FS)
-            % define scoring parameters (hard-coded for NSSBC 2018)
-            Cd  = 3.0e6; % ($/in)
-            Cw0 = 5.0e3; % ($/lb)
+            % define scoring parameters (hard-coded for NSSBC 2025)
+            C_w =      15; % ($/[lb^p_w])
+            p_w =    2.11;
+            C_d = 4250000; % ($/in)
             
             % assume that the overall structure weight is computed based
             %   on the estimated weight of all members, plus a ~20%
@@ -260,7 +297,7 @@ classdef Structure < handle
             WF = 1.2;
             
             % get the list of all available tubing sections
-            [ ~, sections ] = defineProperties();
+            [ ~, sections ] = STRUCTURE.defineProperties();
             Nsections = length(sections);
             
             % get number of members and load cases
@@ -281,11 +318,12 @@ classdef Structure < handle
                               1.0/sections{i}.I ];
             end
             
-            [ scores, weight, deflections ] = STRUCTURE.computeEfficiency();
+            [ ~, weight, deflections, sways ] = STRUCTURE.computeEfficiency();
+            average_score = STRUCTURE.computeAverageEfficiency();
             fprintf('measured weight of structure = %6.2f lbs\n', weight)
-            fprintf('average aggregate deflection = %7.4f in\n', mean(deflections))
+            fprintf('maximum aggregate deflection = %7.4f in\n', max(deflections))
             import java.text.*; fmt = DecimalFormat; % (for printing comma-separated #'s)
-            fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(mean(scores)))))
+            fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(average_score))))
             
             % perform a fixed number of iterations
             for iter = 1:Niterations
@@ -295,20 +333,29 @@ classdef Structure < handle
                 % compute structure compliance
                 STRUCTURE.computeCompliance();
 
+                % calculate lateral sway deflection factor gamma_lat:
+                %  gamma_lat = 0.95  if  sway <= 1/2 [in]
+                %  gamma_lat = 1.0   if  sway >  1/2 [in]
+                gamma_lat = 1.0 - 0.05*(sways <= 0.5);
+
                 % optimize members individually
                 dS = zeros(Nmem,4);
                 Smin = zeros(Nmem,4);
                 for i = 1:Ncases
                     % compute structure section derivatives
                     [dSi, Smini] = STRUCTURE.computeSectionDerivatives(STRUCTURE.verticalCases{i});
-                    dS = dS + dSi / Ncases;
+                    dS = dS + STRUCTURE.verticalCases{i}.probability * gamma_lat(i) * dSi;
                     Smin = max(Smin, Smini);
                 end
+
+                % calculate sensitivity of overall score
+                % score = C_w * (weight^p_w) + C_d * (gamma_lat.*deflection)
+                % dscore/ddeflection = C_d * gamma_lat
+                % dscore/dweight     = p_w * C_w * (weight^(p_w-1.0))
                 
                 % multiply by scoring parameters
-                Cw = Cw0 * min(1.0, weight / 120);
-                dS(:,1:3) = Cd * abs(dS(:,1:3));
-                dS(:,4)   = Cw * WF * dS(:,4);
+                dS(:,1:3) = C_d * abs(dS(:,1:3));
+                dS(:,4)   = p_w * C_w * (weight^(p_w-1.0)) * WF * dS(:,4);
                 Smin = Smin * FS;
 
                 % set new sections based on the updated derivatives
@@ -338,11 +385,12 @@ classdef Structure < handle
                 % reset the needStiffness flag to true
                 STRUCTURE.needStiffness = true;
                 
-                [ scores, weight, deflections ] = STRUCTURE.computeEfficiency();
+                [ ~, weight, deflections, sways ] = STRUCTURE.computeEfficiency();
+                average_score = STRUCTURE.computeAverageEfficiency();
                 fprintf('measured weight of structure = %6.2f lbs\n', weight)
-                fprintf('average aggregate deflection = %7.4f in\n', mean(deflections))
+                fprintf('maximum aggregate deflection = %7.4f in\n', max(deflections))
                 import java.text.*; fmt = DecimalFormat; % (for printing comma-separated #'s)
-                fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(mean(scores)))))
+                fprintf('average efficiency score     = $%s\n', char(fmt.format(ceil(average_score))))
             end
         end % optimizeMemberSections
         
@@ -576,7 +624,7 @@ classdef Structure < handle
             fprintf(fid, '1000\n');
             
             % get the list of all available tubing sections
-            [ ~, sections ] = defineProperties();
+            [ ~, sections ] = STRUCTURE.defineProperties();
             Nsections = length(sections);
             sectionNames = cell(Nsections,1);
             for i = 1:Nsections
@@ -865,7 +913,7 @@ classdef Structure < handle
         % =============================================================== %
           
         % Define all vertical and lateral load cases on the STRUCTURE
-        function defineLoadCases(STRUCTURE, nodes, decking)
+        function defineLoadCases(STRUCTURE, nodes, decking, defineVerticalLoadCases, defineLateralLoadCases)
             % create dofMap
             dofMap = false(6*length(STRUCTURE.joints),1);
             for a = 1:length(STRUCTURE.joints)
@@ -873,19 +921,19 @@ classdef Structure < handle
             end
             
             % create vertical load cases
-            [ loads, measurements ] = defineVerticalLoadCases();
+            [ loads, measurements, probabilities ] = defineVerticalLoadCases();
             STRUCTURE.verticalCases = cell(size(loads,1),1);
             for i = 1:size(loads,1)
-                STRUCTURE.verticalCases{i} = LoadCase(size(nodes,1), size(loads,3), size(measurements,2), dofMap);
+                STRUCTURE.verticalCases{i} = LoadCase(size(nodes,1), size(loads,3), size(measurements,2), dofMap, probabilities(i));
                 STRUCTURE.verticalCases{i}.assignVerticalLoads(loads(i,:,:), nodes, decking)
                 STRUCTURE.verticalCases{i}.assignVerticalMeasurements(measurements(i,:), nodes, decking)
             end
             
             % create lateral load cases
-            [ loads, measurements ] = defineLateralLoadCases();
+            [ loads, measurements, probabilities ] = defineLateralLoadCases();
             STRUCTURE.lateralCases = cell(size(loads,1),1);
             for i = 1:size(loads,1)
-                STRUCTURE.lateralCases{i} = LoadCase(size(nodes,1), 1, 1, dofMap);
+                STRUCTURE.lateralCases{i} = LoadCase(size(nodes,1), 1, 1, dofMap, probabilities(i));
                 STRUCTURE.lateralCases{i}.assignLateralLoad(loads{i}, nodes, decking)
                 STRUCTURE.lateralCases{i}.assignLateralMeasurement(measurements{i}, nodes, decking)
             end
