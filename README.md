@@ -55,6 +55,8 @@ The `optimization.m` script is formatted in a similar fashion to the `example.m`
    - After performing a user-specified number of design iterations (`Niterations = 5`, although the number of iterations can be changed to the user's preference), the iteration procedure is halted and the final set of optimized cross-sectional properties assigned to each member is displayed in a MATLAB figure.
    - Additionally, information regarding the specific section sizes assigned to all members is exported to an AutoCAD file named `optimized_example.dxf`.
 
+For additional information regarding the functionality and organization of BridgeDesigner, refer to the [BridgeBuilder Manual](docs/BridgeBuilder_Manual.pdf).
+
 Students are encouraged to expand upon the provided set of scripts and to write their own customized workflows to suit their needs.
 
 > **CAUTION**: Future revisions to the NSSBC rules will warrant changes to several core BridgeBuilder functions. Scripted workflows from previous years' competitions may not be directly usable without appropriate modifications.
