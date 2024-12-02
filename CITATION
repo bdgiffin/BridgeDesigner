@@ -1,5 +1,4 @@
 abstract: <p>Annual release of BridgeDesigner for the NSSBC 2025 rules.</p>
-message: "If you use this software, please cite it as below."
 authors:
 - affiliation: Oklahoma State University
   family-names: Brian Doran Giffin
