@@ -1,0 +1,14 @@
+abstract: <p>Annual release of BridgeDesigner for the NSSBC 2025 rules.</p>
+message: "If you use this software, please cite it as below."
+authors:
+- affiliation: Oklahoma State University
+  family-names: Brian Doran Giffin
+cff-version: 1.2.0
+date-released: '2024-12-02'
+doi: 10.5281/zenodo.14261034
+license:
+- cc-by-4.0
+repository-code: https://github.com/bdgiffin/BridgeDesigner/tree/v25.0
+title: 'bdgiffin/BridgeDesigner: BridgeDesigner 2025'
+type: software
+version: v25.0
