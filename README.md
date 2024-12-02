@@ -1,4 +1,5 @@
 # BridgeDesigner
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14261034.svg)](https://doi.org/10.5281/zenodo.14261034)
 
 BridgeDesigner is a CAD-to-analysis and structural design optimization toolkit intended for use by teams participating in the [National Student Steel Bridge Competition (NSSBC)](https://www.aisc.org/education/university-programs/student-steel-bridge-competition).
 
