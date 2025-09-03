@@ -143,9 +143,13 @@ classdef Structure < handle
             end
             
             % loop through all lateral load cases
-            sways = zeros(length(STRUCTURE.lateralCases),1);
-            for i = 1:length(STRUCTURE.lateralCases)
-                sways(i) = STRUCTURE.lateralCases{i}.computeDeflection(STRUCTURE.C);
+            sways = zeros(size(STRUCTURE.lateralCases,1),1);
+            for i = 1:size(STRUCTURE.lateralCases,1)
+                sways(i) = 0.0;
+                % determine the largest sway among all tests for the current case
+                for j = 1:size(STRUCTURE.lateralCases,2)
+                    sways(i) = max(sways(i),STRUCTURE.lateralCases{i,j}.computeDeflection(STRUCTURE.C));
+                end
             end
             
             % compute efficiency scores for all cases
@@ -160,15 +164,19 @@ classdef Structure < handle
             
             % compute structure compliance, if necessary
             STRUCTURE.computeCompliance();
-            
+
             % loop through all lateral load cases
-            deflection = zeros(length(STRUCTURE.lateralCases),1);
-            for i = 1:length(STRUCTURE.lateralCases)
-                deflection(i) = STRUCTURE.lateralCases{i}.computeDeflection(STRUCTURE.C);
+            sways = zeros(size(STRUCTURE.lateralCases,1),1);
+            for i = 1:size(STRUCTURE.lateralCases,1)
+                sways(i) = 0.0;
+                % determine the largest sway among all tests for the current case
+                for j = 1:size(STRUCTURE.lateralCases,2)
+                    sways(i) = max(sways(i),STRUCTURE.lateralCases{i,j}.computeDeflection(STRUCTURE.C));
+                end
             end
             
             % determine the worst-case lateral deflection
-            [ sway, caseID ] = max(deflection);
+            [ sway, caseID ] = max(sways);
         end % computeLateralSway
         
         % =============================================================== %
@@ -284,10 +292,10 @@ classdef Structure < handle
         
         % Optimize member sections in the STRUCTURE
         function optimizeMemberSections(STRUCTURE, Niterations, FS)
-            % define scoring parameters (hard-coded for NSSBC 2025)
-            C_w =      15; % ($/[lb^p_w])
-            p_w =    2.11;
-            C_d = 4250000; % ($/in)
+            % define scoring parameters (hard-coded for NSSBC 2026)
+            C_w =      75; % ($/[lb^p_w])
+            p_w =     1.8;
+            C_d = 4000000; % ($/in)
             
             % assume that the overall structure weight is computed based
             %   on the estimated weight of all members, plus a ~20%
@@ -334,9 +342,9 @@ classdef Structure < handle
                 STRUCTURE.computeCompliance();
 
                 % calculate lateral sway deflection factor gamma_lat:
-                %  gamma_lat = 0.95  if  sway <= 1/2 [in]
-                %  gamma_lat = 1.0   if  sway >  1/2 [in]
-                gamma_lat = 1.0 - 0.05*(sways <= 0.5);
+                %  gamma_lat = 0.9   if  sway <= 3/8 [in]
+                %  gamma_lat = 1.0   if  sway >  3/8 [in]
+                gamma_lat = 1.0 - 0.1*(sways <= 0.375);
 
                 % optimize members individually
                 dS = zeros(Nmem,4);
@@ -931,11 +939,13 @@ classdef Structure < handle
             
             % create lateral load cases
             [ loads, measurements, probabilities ] = defineLateralLoadCases();
-            STRUCTURE.lateralCases = cell(size(loads,1),1);
+            STRUCTURE.lateralCases = cell(size(loads));
             for i = 1:size(loads,1)
-                STRUCTURE.lateralCases{i} = LoadCase(size(nodes,1), 1, 1, dofMap, probabilities(i));
-                STRUCTURE.lateralCases{i}.assignLateralLoad(loads{i}, nodes, decking)
-                STRUCTURE.lateralCases{i}.assignLateralMeasurement(measurements{i}, nodes, decking)
+                for j = 1:size(loads,2)
+                    STRUCTURE.lateralCases{i,j} = LoadCase(size(nodes,1), 1, 1, dofMap, probabilities(i));
+                    STRUCTURE.lateralCases{i,j}.assignLateralLoad(loads{i,j}, nodes, decking)
+                    STRUCTURE.lateralCases{i,j}.assignLateralMeasurement(measurements{i,j}, nodes, decking)
+                end
             end
             
         end % defineLoadCases

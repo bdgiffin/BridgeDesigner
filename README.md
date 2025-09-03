@@ -17,7 +17,7 @@ BridgeDesigner comprises an integrated library of Matlab scripts which automate 
 - Automatically resize the sections assigned to each member in the structure to minimize the overall efficiency score.
 - Export optimized designs to AutoCAD (output in the `.dxf` drawing file format).
 
-BridgeDesigner was originally written for the 2018 NSSBC rules, but has been updated for the [2025 NSSBC rules](https://www.aisc.org/globalassets/aisc/university-programs/ssbc/rules/ssbc-2025-rules.pdf).
+BridgeDesigner was originally written for the 2018 NSSBC rules, but has been updated for the [2026 NSSBC rules](https://www.aisc.org/contentassets/ca58032a8ea047218e677b9450c48d9b/ssbc-2026-rules.pdf).
 
 Please direct all inquiries (including bug reports, feature requests, etc.) to Brian Doran Giffin ([brian.giffin@okstate.edu](mailto:brian.giffin@okstate.edu)), the original author of BridgeDesigner.
 

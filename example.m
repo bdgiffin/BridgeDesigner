@@ -4,7 +4,7 @@
 %   BridgeDesigner is a Matlab library of structural design tools,        %
 %   which can be used to write scripts for the purposes of automating     %
 %   various design tasks. BridgeDesigner was originally written for the   %
-%   2018 NSSBC rules, and has been updated for the 2025 NSSBC rules.      %
+%   2018 NSSBC rules, and has been updated for the 2026 NSSBC rules.      %
 % ======================================================================= %
 clear all
 clc
@@ -62,9 +62,9 @@ decking = {'Decking'};
 fprintf('creating model...\n')
 bridge = Structure(dxf, axes, active, decking, ...
                    @defineProperties, ...
-                   @computeEfficiency2025, ...
-                   @defineVerticalLoadCases2025, ...
-                   @defineLateralLoadCases2025);
+                   @computeEfficiency2026, ...
+                   @defineVerticalLoadCases2026, ...
+                   @defineLateralLoadCases2026);
 
 % Compute the (average) efficiency score for the newly created structure
 %   by invoking the "computeEfficiency" method defined on the
