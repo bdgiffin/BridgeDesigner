@@ -39,9 +39,9 @@ bridge = Structure(dxf, axes, active, decking, ...
 % ======================================================================= %
 
 % Specify the load case and step (test) IDs for visualization
-display_option = "vertical";
+display_option = "lateral";
 caseID = 7;
-stepID = 2;
+stepID = 1;
 
 % ======================================================================= %
 
