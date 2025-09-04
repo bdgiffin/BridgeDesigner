@@ -215,11 +215,11 @@ classdef Structure < handle
             if any(factors(:) > 0)
                 pos = find(factors(:) > 0);
                 [ factor, caseID ] = min(factors(pos));
-                caseID = mod(pos(caseID),length(STRUCTURE.verticalCases));
+                caseID = mod(pos(caseID)-1,length(STRUCTURE.verticalCases))+1;
                 mode = modes{caseID};
             else
                 [ factor, caseID ] = max(factors(:));
-                caseID = mod(pos(caseID),length(STRUCTURE.verticalCases));
+                caseID = mod(pos(caseID)-1,length(STRUCTURE.verticalCases))+1;
                 mode = modes{caseID};
             end
         end % computeBucklingLoad
@@ -252,16 +252,16 @@ classdef Structure < handle
         % =============================================================== %
                 
         % Compute STRUCTURE reaction forces
-        function computeReactions(STRUCTURE, caseID)
+        function [r] = computeReactions(STRUCTURE, caseID, stepID)
             % compute structure compliance, if necessary
             STRUCTURE.computeCompliance();
             
             % loop through all vertical load cases
             for i = 1:length(STRUCTURE.verticalCases)
-                U = STRUCTURE.verticalCases{i}.computeJointDisplacements(STRUCTURE.C);
+                U = STRUCTURE.verticalCases{i}.computeJointDisplacements(stepID,STRUCTURE.C);
                 r = STRUCTURE.R * U(STRUCTURE.verticalCases{i}.dofMap);
             end
-            STRUCTURE.plotLoaded(STRUCTURE.verticalCases{caseID}.loads(:,end))
+            STRUCTURE.plotLoaded(STRUCTURE.verticalCases{caseID}.loads(:,stepID))
         end % computeReactions
         
         % =============================================================== %
@@ -404,6 +404,54 @@ classdef Structure < handle
         
         % =============================================================== % 
                 
+        % Display STRUCTURE vertical case/step loads and deformations
+        function [aggregate,d,start_step,end_step] = displayVertical(STRUCTURE, caseID, stepID, scaling)
+            arguments
+                STRUCTURE    % required
+                caseID       % required
+                stepID       % required
+                scaling = 20 % default scaling (x20)
+            end
+
+            % compute structure compliance, if necessary
+            STRUCTURE.computeCompliance();
+
+            % determine the deflection for the current vertical load case/step
+            U = STRUCTURE.verticalCases{caseID}.computeJointDisplacements(stepID,STRUCTURE.C);
+            [aggregate,d,start_step,end_step] = STRUCTURE.verticalCases{caseID}.computeDeflection(STRUCTURE.C);
+
+            % display loads for the current lateral loads case/test
+            STRUCTURE.plotDeformed(scaling*U)
+            STRUCTURE.plotLoaded(STRUCTURE.verticalCases{caseID}.loads(:,stepID),STRUCTURE.verticalCases{caseID}.point_coordinates)
+            %STRUCTURE.plotLoaded(STRUCTURE.verticalCases{caseID}.measurements(:,2))
+        end % displayLateral
+        
+        % =============================================================== %
+                
+        % Display STRUCTURE lateral case/test loads and deformations
+        function [sway] = displayLateral(STRUCTURE, caseID, testID, scaling)
+            arguments
+                STRUCTURE    % required
+                caseID       % required
+                testID       % required
+                scaling = 20 % default scaling (x20)
+            end
+
+            % compute structure compliance, if necessary
+            STRUCTURE.computeCompliance();
+
+            % determine the sway for the current lateral load case/test
+            U    = STRUCTURE.lateralCases{caseID,testID}.computeJointDisplacements(1,STRUCTURE.C);
+            sway = STRUCTURE.lateralCases{caseID,testID}.computeDeflection(STRUCTURE.C);
+
+            % display loads for the current lateral loads case/test
+            STRUCTURE.plotDeformed(scaling*U)
+            STRUCTURE.plotLoaded(STRUCTURE.lateralCases{caseID,testID}.loads,STRUCTURE.lateralCases{caseID,testID}.point_coordinates)
+            %STRUCTURE.plotLoaded(STRUCTURE.lateralCases{caseID,testID}.measurements)
+        end % displayLateral
+        
+        % =============================================================== %
+                
         % Plot undeformed STRUCTURE
         function plotUndeformed(STRUCTURE)
             % plot the undeformed structure
@@ -440,7 +488,7 @@ classdef Structure < handle
             xlabel('Span')
             ylabel('Lateral')
             zlabel('Up')
-            xlim([-120, +120])
+            xlim([-160, +160])
             ylim([-30, +30])
             zlim([0.0, 60])
             view(0,0)
@@ -449,7 +497,13 @@ classdef Structure < handle
         % =============================================================== %
         
         % Plot loaded STRUCTURE
-        function plotLoaded(STRUCTURE, F)
+        function plotLoaded(STRUCTURE, F, points)
+            arguments
+                STRUCTURE   % required
+                F           % required
+                points = [] % deflection measurement point coordinates
+            end
+
             % plot the loaded structure
             figure('Name','Applied Forces')
             hold on
@@ -462,16 +516,18 @@ classdef Structure < handle
             end
             % plot all loads
             for a = 1:length(STRUCTURE.joints)
+                % draw the resultant forces applied at the nodes
                 quiver3(STRUCTURE.joints{a}.X(1), ...
                         STRUCTURE.joints{a}.X(2), ...
                         STRUCTURE.joints{a}.X(3), ...
                         F(1+6*(a-1)),F(2+6*(a-1)),F(3+6*(a-1)), ...
-                        100,'g')
+                        100,'r','LineWidth',2)
+                % draw the resultant moments applied at the nodes
                 quiver3(STRUCTURE.joints{a}.X(1), ...
                         STRUCTURE.joints{a}.X(2), ...
                         STRUCTURE.joints{a}.X(3), ...
                         F(4+6*(a-1)),F(5+6*(a-1)),F(6+6*(a-1)), ...
-                        100,'r')
+                        100,'m','LineWidth',2)
             end
             % plot all supports
             for a = 1:length(STRUCTURE.joints)
@@ -482,13 +538,20 @@ classdef Structure < handle
                           '^g')
                 end
             end
+            % plot all deflection measurement point coordinates
+            for a = 1:size(points,2)
+                plot3(points(1,a), ...
+                      points(2,a), ...
+                      points(3,a), ...
+                      'oc','LineWidth',4,'MarkerSize',10)
+            end
             
             % set plotting options
             axis equal
             xlabel('Span')
             ylabel('Lateral')
             zlabel('Up')
-            xlim([-120, +120])
+            xlim([-160, +160])
             ylim([-30, +30])
             zlim([0.0, 60])
             view(0,0)
@@ -522,7 +585,7 @@ classdef Structure < handle
             xlabel('Span')
             ylabel('Lateral')
             zlabel('Up')
-            xlim([-120, +120])
+            xlim([-160, +160])
             ylim([-30, +30])
             zlim([0.0, 60])
             view(0,0)

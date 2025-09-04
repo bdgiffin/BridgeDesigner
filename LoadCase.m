@@ -7,6 +7,7 @@ classdef LoadCase < handle
         measurements
         intervals
         dofMap
+        point_coordinates
     end % private properties
 
     properties (SetAccess = public)
@@ -25,6 +26,7 @@ classdef LoadCase < handle
             LOADCASE.intervals = zeros(Nmeasurements, Nsteps);
             LOADCASE.dofMap = dofMap;
             LOADCASE.probability = probability;
+            LOADCASE.point_coordinates = zeros(3,Nmeasurements);
         end % LoadCase
         
         % =============================================================== %
@@ -172,6 +174,7 @@ classdef LoadCase < handle
                             LOADCASE.measurements(ids2,j) = LOADCASE.measurements(ids2,j) ...
                                                           + [0, 0, h01, 0, ref*h11, 0]';
                             LOADCASE.intervals(j,points{1,j}(4:5)) = [-1, +1];
+                            LOADCASE.point_coordinates(:,j) = (1-x)*nodes(left(l,i1),:) + x*nodes(left(l,i2),:);
                             break
                         end
                     end
@@ -202,6 +205,7 @@ classdef LoadCase < handle
                             LOADCASE.measurements(ids2,j) = LOADCASE.measurements(ids2,j) ...
                                                           + [0, 0, h01, 0, ref*h11, 0]';
                             LOADCASE.intervals(j,points{1,j}(4:5)) = [-1, +1];
+                            LOADCASE.point_coordinates(:,j) = (1-x)*nodes(right(l,i1),:) + x*nodes(right(l,i2),:);
                             break
                         end
                     end
@@ -255,6 +259,7 @@ classdef LoadCase < handle
                         ids2 = (1:6) + 6*(left(l,i2)-1);
                         LOADCASE.loads(ids1,1) = LOADCASE.loads(ids1,1) + [0, R1, 0, 0, 0, -ref*M1]';
                         LOADCASE.loads(ids2,1) = LOADCASE.loads(ids2,1) + [0, R2, 0, 0, 0, +ref*M2]';
+                        LOADCASE.point_coordinates(:,1) = (1-a/L)*nodes(left(l,i1),:) + (a/L)*nodes(left(l,i2),:);
                         break
                     end
                 end
@@ -282,6 +287,7 @@ classdef LoadCase < handle
                         ids2 = (1:6) + 6*(right(l,i2)-1);
                         LOADCASE.loads(ids1,1) = LOADCASE.loads(ids1,1) + [0, R1, 0, 0, 0, -ref*M1]';
                         LOADCASE.loads(ids2,1) = LOADCASE.loads(ids2,1) + [0, R2, 0, 0, 0, +ref*M2]';
+                        LOADCASE.point_coordinates(:,1) = (1-a/L)*nodes(right(l,i1),:) + (a/L)*nodes(right(l,i2),:);
                         break
                     end
                 end
@@ -398,24 +404,29 @@ classdef LoadCase < handle
         % =============================================================== %
                 
         % Compute LOADCASE deflection
-        function [ d ] = computeDeflection(LOADCASE, C)
+        function [ aggregate, d, start_step, end_step ] = computeDeflection(LOADCASE, C)
             % compute the measured deflection for the assigned load case
-            d = 0.0;
+            aggregate = 0.0;
+            d = zeros(size(LOADCASE.measurements,2),1);
+            start_step = zeros(size(LOADCASE.measurements,2),1);
+            end_step   = zeros(size(LOADCASE.measurements,2),1);
             for i = 1:size(LOADCASE.measurements,2)
                 % zero measurement at pre-load (if specified)
                 f = zeros(sum(LOADCASE.dofMap),1);
                 preload = (LOADCASE.intervals(i,:) == -1);
                 if any(preload)
                     f = f - LOADCASE.loads(LOADCASE.dofMap,preload);
+                    start_step(i) = find(preload);
                 end
                 % read measurement at end-step loading
                 load = (LOADCASE.intervals(i,:) == +1);
                 if any(load)
                     f = f + LOADCASE.loads(LOADCASE.dofMap,load);
+                    end_step(i) = find(load);
                 end
                 % take absolute difference, and sum into aggregate
-                u = LOADCASE.measurements(LOADCASE.dofMap,i)' * (C\(C'\f));
-                d = d + abs(u);
+                d(i) = LOADCASE.measurements(LOADCASE.dofMap,i)' * (C\(C'\f));
+                aggregate = aggregate + abs(d(i));
             end
         end % computeDeflection
         

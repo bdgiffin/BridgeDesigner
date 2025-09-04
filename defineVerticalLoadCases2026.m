@@ -90,8 +90,9 @@ side = [-1, +1; ...  % N=2
         -1, +1];     % N=12
 
 % locations: distance (in inches) to the measurement locations
-% (shift the locations from earlier by 1'6")
-locations = locations + (1*12+6);
+% (shift the locations from earlier by 1'6", as needed)
+%                                          D1      D2
+locations = locations + ones(Ncases,1)*[ 1*12+6, 0*12+0 ];
 
 % start/end_step: denotes the index of the load steps at which deflections
 %                 will be zeroed (start) and measured (end)
